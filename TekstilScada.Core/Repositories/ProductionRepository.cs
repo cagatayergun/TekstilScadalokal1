@@ -124,36 +124,38 @@ namespace TekstilScada.Repositories
             }
         }
 
-        public void EndBatch(int machineId, string batchId, FullMachineStatus finalStatus, int machineAlarmSeconds, int operatorPauseSeconds, int actualProducedQuantity)
+        public void EndBatch(int machineId, string batchId, FullMachineStatus finalStatus, int machineAlarmSeconds, int operatorPauseSeconds, int actualProducedQuantity, int calculatedTotalDowntimeSeconds)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
                 connection.Open();
-                // Sadece EndTime değil, tüm OEE verilerini de güncelle
+                // GÜNCELLENDİ: SQL sorgusu, TotalDownTimeSeconds'ı yeni parametreden alacak.
                 string query = @"
-                    UPDATE production_batches SET 
-                        EndTime = @EndTime,
-                        TotalProductionCount = @TotalProductionCount,
-                        DefectiveProductionCount = @DefectiveProductionCount,
-                        TotalDownTimeSeconds = @TotalDownTimeSeconds,
-                        MachineAlarmDurationSeconds = @MachineAlarmDuration,
-                        OperatorPauseDurationSeconds = @OperatorPauseDuration
-                        actual_produced_quantity = @actual_produced_quantity
-                    WHERE 
-                        MachineId = @MachineId AND BatchId = @BatchId AND EndTime IS NULL;";
+            UPDATE production_batches SET 
+                EndTime = @EndTime,
+                TotalProductionCount = @TotalProductionCount,
+                DefectiveProductionCount = @DefectiveProductionCount,
+                TotalDownTimeSeconds = @TotalDownTimeSeconds, 
+                MachineAlarmDurationSeconds = @MachineAlarmDuration,
+                OperatorPauseDurationSeconds = @OperatorPauseDuration,
+                actual_produced_quantity = @actual_produced_quantity
+            WHERE 
+                MachineId = @MachineId AND BatchId = @BatchId AND EndTime IS NULL;";
 
                 var cmd = new MySqlCommand(query, connection);
                 cmd.Parameters.AddWithValue("@EndTime", DateTime.Now);
                 cmd.Parameters.AddWithValue("@MachineId", machineId);
                 cmd.Parameters.AddWithValue("@BatchId", batchId);
-
-                // FinalStatus'tan gelen OEE verilerini ekle
                 cmd.Parameters.AddWithValue("@TotalProductionCount", finalStatus.TotalProductionCount);
                 cmd.Parameters.AddWithValue("@DefectiveProductionCount", finalStatus.DefectiveProductionCount);
-                cmd.Parameters.AddWithValue("@TotalDownTimeSeconds", finalStatus.TotalDownTimeSeconds);
-                cmd.Parameters.AddWithValue("@actual_produced_quantity", actualProducedQuantity);
+
+                // YENİ MANTIK: Toplam duruş süresi olarak PLC'den gelen yerine SCADA'da hesaplananı kullanıyoruz.
+                cmd.Parameters.AddWithValue("@TotalDownTimeSeconds", calculatedTotalDowntimeSeconds);
+
+                // Bilgilendirme amaçlı alarm ve duraklatma sürelerini ayrı ayrı kaydetmeye devam ediyoruz.
                 cmd.Parameters.AddWithValue("@MachineAlarmDuration", machineAlarmSeconds);
                 cmd.Parameters.AddWithValue("@OperatorPauseDuration", operatorPauseSeconds);
+                cmd.Parameters.AddWithValue("@actual_produced_quantity", actualProducedQuantity);
 
                 cmd.ExecuteNonQuery();
             }

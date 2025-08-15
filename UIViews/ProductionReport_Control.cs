@@ -62,7 +62,42 @@ namespace TekstilScada.UI.Views
                 var reportData = _productionRepository.GetProductionReport(filters);
                 dgvProductionReport.DataSource = null;
                 dgvProductionReport.DataSource = reportData;
+                // --- YENİ EKLENECEK KOD BAŞLANGICI ---
+                try
+                {
+                    // İstenmeyen OEE ve detay sütunlarını gizle
+                    if (dgvProductionReport.Columns["MachineAlarmDurationSeconds"] != null)
+                        dgvProductionReport.Columns["MachineAlarmDurationSeconds"].Visible = false;
+
+                    if (dgvProductionReport.Columns["OperatorPauseDurationSeconds"] != null)
+                        dgvProductionReport.Columns["OperatorPauseDurationSeconds"].Visible = false;
+
+                    if (dgvProductionReport.Columns["TheoreticalCycleTimeSeconds"] != null)
+                        dgvProductionReport.Columns["TheoreticalCycleTimeSeconds"].Visible = false;
+
+                    if (dgvProductionReport.Columns["GoodCount"] != null)
+                        dgvProductionReport.Columns["GoodCount"].Visible = false;
+
+                    if (dgvProductionReport.Columns["ScrapCount"] != null)
+                        dgvProductionReport.Columns["ScrapCount"].Visible = false;
+
+                    if (dgvProductionReport.Columns["TotalProductionCount"] != null)
+                        dgvProductionReport.Columns["TotalProductionCount"].Visible = false;
+
+                    if (dgvProductionReport.Columns["DefectiveProductionCount"] != null)
+                        dgvProductionReport.Columns["DefectiveProductionCount"].Visible = false;
+
+                    if (dgvProductionReport.Columns["TotalDownTimeSeconds"] != null)
+                        dgvProductionReport.Columns["TotalDownTimeSeconds"].Visible = false;
+                }
+                catch (Exception ex)
+                {
+                    // Kolon gizleme sırasında hata olursa kullanıcıyı bilgilendir
+                    MessageBox.Show($"Rapor kolonları ayarlanırken bir hata oluştu: {ex.Message}", "Uyarı");
+                }
+                // --- YENİ EKLENECEK KOD BİTİŞİ ---
             }
+
             catch (Exception ex)
             {
                 MessageBox.Show($"Rapor oluşturulurken bir hata oluştu: {ex.Message}", "Hata");

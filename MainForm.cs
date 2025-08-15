@@ -49,7 +49,7 @@ namespace TekstilScada
             _alarmRepository = new AlarmRepository();
             _productionRepository = new ProductionRepository();
             _pollingService = new PlcPollingService(_alarmRepository, _processLogRepository, _productionRepository, _recipeRepository);
-            _dashboardRepository = new DashboardRepository();
+            _dashboardRepository = new DashboardRepository(_recipeRepository);
 
             _prosesIzlemeView = new Proses›zleme_Control();
             _prosesKontrolView = new ProsesKontrol_Control();

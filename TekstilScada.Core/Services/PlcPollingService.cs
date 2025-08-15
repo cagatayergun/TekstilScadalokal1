@@ -306,25 +306,29 @@ namespace TekstilScada.Services
             }
             else if (!currentStatus.IsInRecipeMode && lastBatchId != null)
             {
-                
-                     int actualProducedQuantity = 0;
-               
-                    actualProducedQuantity = currentStatus.ActualQuantityProduction;
-                
+                int actualProducedQuantity = 0;
+                actualProducedQuantity = currentStatus.ActualQuantityProduction;
 
-                // YENİ: Sayaçlardaki son veriyi al
                 _liveAlarmCounters.TryGetValue(machineId, out var finalCounters);
-                
-                // DÜZENLEME: EndBatch metoduna yeni parametreleri gönder
-                _productionRepository.EndBatch(machineId, lastBatchId, currentStatus, finalCounters.machineAlarmSeconds, finalCounters.operatorPauseSeconds, actualProducedQuantity);
-              
+
+                // YENİ HESAPLAMA: Toplam duruş süresini SCADA'da hesaplıyoruz.
+                int totalDowntimeFromScada = finalCounters.machineAlarmSeconds + finalCounters.operatorPauseSeconds;
+
+                // GÜNCELLENDİ: EndBatch metoduna artık PLC'den gelen duruş süresi yerine
+                // SCADA'da hesapladığımız bu yeni değeri gönderiyoruz.
+                _productionRepository.EndBatch(
+                    machineId,
+                    lastBatchId,
+                    currentStatus,
+                    finalCounters.machineAlarmSeconds,
+                    finalCounters.operatorPauseSeconds,
+                    actualProducedQuantity,
+                    totalDowntimeFromScada // YENİ EKLENEN PARAMETRE
+                );
+
                 _currentBatches[machineId] = null;
-
+                _liveAlarmCounters.TryRemove(machineId, out _); // Bir sonraki parti için sayacı sıfırla
                 _liveAnalyzers.TryRemove(machineId, out _);
-
-
-             
-
 
                 if (_plcManagers.TryGetValue(machineId, out var plcManager))
                 {
@@ -333,7 +337,6 @@ namespace TekstilScada.Services
                         await plcManager.ResetOeeCountersAsync();
                     });
                 }
-                
             }
         }
 

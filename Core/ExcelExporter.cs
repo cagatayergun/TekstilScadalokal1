@@ -9,6 +9,7 @@ using ScottPlot; // HATA GİDERİLDİ: ScottPlot için eklendi
 using System.IO; // MemoryStream için eklendi
 using System.Drawing.Imaging; // HATA GİDERİLDİ: ImageFormat için eklendi
 using System.Linq; // Any() metodu için eklendi
+using ScottPlot;
 namespace TekstilScada.Core
 {
     public static class ExcelExporter
