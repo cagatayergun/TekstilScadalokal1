@@ -13,7 +13,8 @@ using TekstilScada.Repositories;
 using TekstilScada.Services;
 using TekstilScada.UI.Controls;
 using TekstilScada.UI.Controls.RecipeStepEditors;
-
+using TekstilScada.UI.Views;
+using TekstilScada.Core.Models;
 namespace TekstilScada.UI
 {
     public partial class FtpSync_Form : Form
@@ -27,13 +28,17 @@ namespace TekstilScada.UI
         private DataGridView dgvRecipeSteps;
         private Panel pnlStepDetails;
         private ScadaRecipe _previewRecipe;
-
-        public FtpSync_Form(MachineRepository machineRepo, RecipeRepository recipeRepo)
+        private readonly string _targetMachineType;
+        private readonly PlcPollingService _plcPollingService; // <-- YENİ DEĞİŞKENİ EKLEYİN
+        public FtpSync_Form(MachineRepository machineRepo, RecipeRepository recipeRepo, PlcPollingService plcPollingService, string targetMachineType)
         {
             InitializeComponent();
             _machineRepository = machineRepo;
             _recipeRepository = recipeRepo;
+            _targetMachineType = targetMachineType; // Gelen parametreyi değişkene ata
             _transferService = FtpTransferService.Instance;
+            _transferService.SetSyncContext(SynchronizationContext.Current);
+            _plcPollingService = plcPollingService; // <-- GELEN SERVİSİ DEĞİŞKENE ATAYIN
         }
 
         private void FtpSync_Form_Load(object sender, EventArgs e)
@@ -47,8 +52,23 @@ namespace TekstilScada.UI
 
         private void LoadMachines()
         {
+            // 1. Servisin anlık veri önbelleğini al.
+            var machineCache = _plcPollingService.MachineDataCache;
+
+            // 2. Makineleri veritabanından çekerken bu önbelleğe göre filtrele.
             var machines = _machineRepository.GetAllEnabledMachines()
-                .Where(m => !string.IsNullOrEmpty(m.FtpUsername)).ToList();
+                .Where(m =>
+                    // Mevcut Filtrelerin
+                    !string.IsNullOrEmpty(m.FtpUsername) &&
+                    m.MachineType != "Kurutma Makinesi" &&
+                    (!string.IsNullOrEmpty(m.MachineSubType) ? m.MachineSubType : m.MachineType) == _targetMachineType &&
+
+                    // NİHAİ VE KAYNAK KODUNA UYGUN KONTROL:
+                    // Bu makinenin kaydı Cache'de var mı? VE
+                    // Bu kaydın içindeki anlık bağlantı durumu "Connected" mı?
+                    machineCache.TryGetValue(m.Id, out FullMachineStatus status) && status.ConnectionState == ConnectionStatus.Connected
+                )
+                .ToList();
 
             ((ListBox)clbMachines).DataSource = machines;
             ((ListBox)clbMachines).DisplayMember = "DisplayInfo";
@@ -57,7 +77,10 @@ namespace TekstilScada.UI
 
         private void LoadLocalRecipes()
         {
-            lstLocalRecipes.DataSource = _recipeRepository.GetAllRecipes();
+            // Reçeteleri seçilen makine tipine göre filtrele
+            lstLocalRecipes.DataSource = _recipeRepository.GetAllRecipes()
+                .Where(r => r.TargetMachineType == _targetMachineType)
+                .ToList();
             lstLocalRecipes.DisplayMember = "RecipeName";
             lstLocalRecipes.ValueMember = "Id";
         }
@@ -153,7 +176,22 @@ namespace TekstilScada.UI
                 return;
             }
 
-            _transferService.QueueSendJobs(selectedRecipes, selectedMachines);
+            // Kullanıcıdan başlangıç numarasını al
+            string startNumberStr = ProsesKontrol_Control.ShowInputDialog("Gönderilecek ilk reçete numarasını girin (1-98):", true);
+            if (string.IsNullOrEmpty(startNumberStr) || !int.TryParse(startNumberStr, out int startNumber))
+            {
+                return; // Kullanıcı iptal etti veya geçersiz giriş yaptı
+            }
+
+            // Seçilen reçete sayısı, kalan numaralara sığıyor mu kontrol et
+            if (startNumber + selectedRecipes.Count - 1 > 98)
+            {
+                MessageBox.Show($"Seçtiğiniz {selectedRecipes.Count} adet reçete, {startNumber} başlangıç numarasıyla 98 limitini aşıyor. Lütfen daha düşük bir başlangıç numarası seçin.", "Hata");
+                return;
+            }
+
+            // Yeni servis metodunu çağır
+            _transferService.QueueSequentiallyNamedSendJobs(selectedRecipes, selectedMachines, startNumber);
         }
 
         private void btnReceive_Click(object sender, EventArgs e)

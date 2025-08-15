@@ -42,7 +42,7 @@ namespace TekstilScada.Services
 
         // YENİ: Timer'ın her saniye tetiklendiğini varsayıyoruz
         private const int POLLING_INTERVAL_SECONDS = 1;
-
+        public List<int> OnlineMachineIds { get; private set; } = new List<int>();
         // Constructor'ı (Yapıcı Metot) bu şekilde güncelleyin
         public PlcPollingService(AlarmRepository alarmRepository, ProcessLogRepository processLogRepository, ProductionRepository productionRepository, RecipeRepository recipeRepository)
         {
@@ -339,7 +339,7 @@ namespace TekstilScada.Services
                 }
             }
         }
-
+       
         private void CheckAndLogAlarms(int machineId, FullMachineStatus currentStatus)
         {
             if (_activeAlarmsTracker == null || !_activeAlarmsTracker.TryGetValue(machineId, out var machineActiveAlarms))

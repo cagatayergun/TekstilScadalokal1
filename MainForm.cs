@@ -102,7 +102,7 @@ namespace TekstilScada
 
             // Kontrolleri en güncel verilerle baþlat
             _prosesIzlemeView.InitializeView(machines, _pollingService);
-            _prosesKontrolView.InitializeControl(_recipeRepository, _machineRepository, plcManagers);
+            _prosesKontrolView.InitializeControl(_recipeRepository, _machineRepository, plcManagers, _pollingService);
             _ayarlarView.InitializeControl(_machineRepository, plcManagers);
             _raporlarView.InitializeControl(_machineRepository, _alarmRepository, _productionRepository, _dashboardRepository, _processLogRepository, _recipeRepository);
             _genelBakisView.InitializeControl(_pollingService, _machineRepository, _dashboardRepository, _alarmRepository, _processLogRepository);

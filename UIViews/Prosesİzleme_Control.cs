@@ -19,6 +19,7 @@ namespace TekstilScada.UI.Views
         public Prosesİzleme_Control()
         {
             InitializeComponent();
+            this.DoubleBuffered = true;
         }
 
         public void InitializeView(List<Machine> machines, PlcPollingService service)

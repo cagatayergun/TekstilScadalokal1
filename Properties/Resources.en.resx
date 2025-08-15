@@ -642,10 +642,10 @@
     <value>FTP Password :</value>
   </data>
   <data name="bymakinesi" xml:space="preserve">
-    <value>WP Machines</value>
+    <value>BY Machines</value>
   </data>
   <data name="kurutmamakinesi" xml:space="preserve">
-    <value>Dryer</value>
+    <value>Drying Machine</value>
   </data>
   <data name="makineyüklemehatası" xml:space="preserve">
     <value>An error occurred while loading machines:</value>

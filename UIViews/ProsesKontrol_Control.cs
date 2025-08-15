@@ -29,6 +29,7 @@ namespace TekstilScada.UI.Views
         private Label lblStepDetailsTitle;
         private CostRepository _costRepository;
         private FtpSync_Form _ftpFormInstance; // YENİ EKLENEN SATIR
+        private PlcPollingService _plcPollingService;
         public ProsesKontrol_Control()
         {
             InitializeComponent();
@@ -45,11 +46,12 @@ namespace TekstilScada.UI.Views
             this.Load += ProsesKontrol_Control_Load;
         }
 
-        public void InitializeControl(RecipeRepository recipeRepo, MachineRepository machineRepo, Dictionary<int, IPlcManager> plcManagers)
+        public void InitializeControl(RecipeRepository recipeRepo, MachineRepository machineRepo, Dictionary<int, IPlcManager> plcManagers, PlcPollingService plcPollingService)
         {
             _recipeRepository = recipeRepo;
             _machineRepository = machineRepo;
             _plcManagers = plcManagers;
+           _plcPollingService = plcPollingService;
 
         }
 
@@ -402,25 +404,42 @@ namespace TekstilScada.UI.Views
 
         private void BtnFtpSync_Click(object sender, EventArgs e)
         {
-            // 1. Eğer form daha önce açılmış ve hala açıksa, yeni bir tane açma, eskisini öne getir.
-            if (_ftpFormInstance != null && !_ftpFormInstance.IsDisposed)
+            // 1. FTP özelliği olan ve Kurutma Makinesi olmayan makine tiplerini bul.
+            var ftpMachineTypes = _machineRepository.GetAllEnabledMachines()
+                .Where(m => !string.IsNullOrEmpty(m.FtpUsername) && m.MachineType != "Kurutma Makinesi")
+                .Select(m => !string.IsNullOrEmpty(m.MachineSubType) ? m.MachineSubType : m.MachineType)
+                .Distinct()
+                .ToList();
+
+            if (!ftpMachineTypes.Any())
             {
-                _ftpFormInstance.BringToFront();
+                MessageBox.Show("Sistemde FTP transferi için uygun makine tipi bulunamadı.", "Uyarı");
                 return;
             }
 
-            // 2. Formu oluştur.
-            _ftpFormInstance = new FtpSync_Form(_machineRepository, _recipeRepository);
+            // 2. Kullanıcıdan bu tiplerden birini seçmesini iste.
+            using (var typeForm = new RecipeTypeSelection_Form(ftpMachineTypes))
+            {
+                if (typeForm.ShowDialog() == DialogResult.OK)
+                {
+                    string selectedType = typeForm.SelectedType;
+                    if (string.IsNullOrEmpty(selectedType)) return;
 
-            // 3. Form kapandığında, referansı temizle ki tekrar açılabilsin.
-            _ftpFormInstance.FormClosed += (s, args) => _ftpFormInstance = null;
+                    // 3. FTP formunu seçilen tiple aç.
+                    if (_ftpFormInstance != null && !_ftpFormInstance.IsDisposed)
+                    {
+                        _ftpFormInstance.BringToFront();
+                    }
+                    else
+                    {
 
-            // 4. Formu ShowDialog() yerine Show() ile açarak arka planda çalışmaya izin ver.
-            _ftpFormInstance.Show(this);
-
-            // DİKKAT: LoadRecipeList() satırını buradan siliyoruz.
-            // Çünkü Show() komutu beklemeyeceği için, liste yenileme işlemini
-            // arka plan servisinden bir sinyal geldiğinde yapacağız. (Bir sonraki adımda anlatılıyor)
+                        // FtpSync_Form'u seçilen makine tipiyle başlat.
+                        _ftpFormInstance = new FtpSync_Form(_machineRepository, _recipeRepository, _plcPollingService, selectedType);
+                        _ftpFormInstance.FormClosed += (s, args) => _ftpFormInstance = null;
+                        _ftpFormInstance.Show(this);
+                    }
+                }
+            }
         }
 
         private async void BtnSendToPlc_Click(object sender, EventArgs e)
@@ -497,7 +516,7 @@ namespace TekstilScada.UI.Views
                 {
                     // Güncellenmiş ShowInputDialog metodunu kullanıyoruz (isNumeric = true)
                     string input = ShowInputDialog("Lütfen PLC'ye kaydedilecek reçete numarasını girin (1-20):", true);
-                    if (int.TryParse(input, out int slot) && slot >= 1 && slot <= 20)
+                    if (int.TryParse(input, out int slot) && slot >= 1 && slot <= 98)
                     {
                         recipeSlot = slot;
                     }
@@ -567,7 +586,7 @@ namespace TekstilScada.UI.Views
 
             if (isNumeric)
             {
-                inputBox = new NumericUpDown() { Left = 50, Top = 50, Width = 400, Minimum = 1, Maximum = 20 };
+                inputBox = new NumericUpDown() { Left = 50, Top = 50, Width = 400, Minimum = 1, Maximum = 98 };
             }
             else
             {

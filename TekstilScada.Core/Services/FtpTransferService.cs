@@ -20,7 +20,13 @@ namespace TekstilScada.Services
         // INotifyPropertyChanged için gerekli event
         public event PropertyChangedEventHandler PropertyChanged;
         //public static event EventHandler RecipeListChanged;
-      
+        // ... diğer özellikler ...
+        public string HedefDosyaAdi { get; set; } // YENİ
+
+        // ReceteAdi özelliğini güncelleyelim
+        public string ReceteAdi => IslemTipi == TransferType.Gonder
+                                   ? (!string.IsNullOrEmpty(HedefDosyaAdi) ? $"{YerelRecete?.RecipeName} -> {HedefDosyaAdi}" : YerelRecete?.RecipeName)
+                                   : UzakDosyaAdi;
         protected void OnPropertyChanged(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -75,7 +81,7 @@ namespace TekstilScada.Services
 
         // DataGridView'de göstermek için property'ler
         public string MakineAdi => Makine.MachineName;
-        public string ReceteAdi => IslemTipi == TransferType.Gonder ? YerelRecete?.RecipeName : UzakDosyaAdi;
+       // public string ReceteAdi => IslemTipi == TransferType.Gonder ? YerelRecete?.RecipeName : UzakDosyaAdi;
     }
 
     public class FtpTransferService
@@ -85,9 +91,12 @@ namespace TekstilScada.Services
           public event EventHandler RecipeListChanged;
         public BindingList<TransferJob> Jobs { get; } = new BindingList<TransferJob>();
         private bool _isProcessing = false;
-
+        private SynchronizationContext _syncContext;
         private FtpTransferService() { }
-
+        public void SetSyncContext(SynchronizationContext context)
+        {
+            _syncContext = context;
+        }
         public void QueueSendJobs(List<ScadaRecipe> receteler, Machine makine)
         {
             foreach (var recete in receteler)
@@ -118,10 +127,9 @@ namespace TekstilScada.Services
         {
             foreach (var dosya in dosyaAdlari)
             {
-                if (!Jobs.Any(j => j.Makine.Id == makine.Id && j.UzakDosyaAdi == dosya && j.IslemTipi == TransferType.Al))
-                {
-                    Jobs.Add(new TransferJob { Makine = makine, UzakDosyaAdi = dosya, IslemTipi = TransferType.Al });
-                }
+                // NİHAİ ÇÖZÜM: Tekrar çekmeyi engelleme kontrolü kaldırıldı.
+                // Artık aynı dosya için tekrar tekrar "Al" işlemi başlatılabilir.
+                Jobs.Add(new TransferJob { Makine = makine, UzakDosyaAdi = dosya, IslemTipi = TransferType.Al });
             }
             StartProcessingIfNotRunning();
         }
@@ -226,47 +234,73 @@ namespace TekstilScada.Services
                 var job = Jobs.FirstOrDefault(j => j.Durum == TransferStatus.Beklemede);
                 if (job == null) continue;
 
-                job.Durum = TransferStatus.Aktarılıyor;
                 try
                 {
+                    job.Durum = TransferStatus.Aktarılıyor;
                     var ftpService = new FtpService(job.Makine.VncAddress, job.Makine.FtpUsername, job.Makine.FtpPassword);
                     job.Ilerleme = 20;
 
                     if (job.IslemTipi == TransferType.Gonder)
                     {
                         var fullRecipe = recipeRepo.GetRecipeById(job.YerelRecete.Id);
+                        if (fullRecipe == null || !fullRecipe.Steps.Any())
+                        {
+                            throw new Exception("Reçete veritabanında bulunamadı veya adımları boş.");
+                        }
+
+                        // ***************************************************************
+                        // *** NİHAİ ÇÖZÜM: LOKAL İSMİ 99. ADIMA YAZMA ***
+                        // ***************************************************************
+
+                        // 1. LOKALDEKİ reçete adını al (örn: "BY-1-REAKTİF-SİYAH-1").
+                        string nameToEmbed = job.YerelRecete.RecipeName;
+
+                        // En fazla 10 karakter olabilir (5 word = 10 byte).
+                        if (nameToEmbed.Length > 10)
+                        {
+                            nameToEmbed = nameToEmbed.Substring(0, 10);
+                        }
+
+                        // 2. İsmi ASCII byte dizisine çevir. Kalan yerleri boşluk (0) ile doldur.
+                        byte[] asciiBytes = new byte[10];
+                        Encoding.ASCII.GetBytes(nameToEmbed, 0, nameToEmbed.Length, asciiBytes, 0);
+
+                        // 3. Reçetedeki 99. adımı bul veya oluştur.
+                        var step99 = fullRecipe.Steps.FirstOrDefault(s => s.StepNumber == 99);
+                        if (step99 == null)
+                        {
+                            step99 = new ScadaRecipeStep { StepNumber = 99 };
+                            // Adım listesini sıralı tutmak için sona eklemek yerine araya ekleyebiliriz (opsiyonel)
+                            fullRecipe.Steps.Add(step99);
+                            fullRecipe.Steps = fullRecipe.Steps.OrderBy(s => s.StepNumber).ToList();
+                        }
+
+                        // 4. Byte'ları 5 adet word'e çevir ve 99. adımın ilk 5 verisine yaz.
+                        for (int i = 0; i < 5; i++)
+                        {
+                            step99.StepDataWords[i] = BitConverter.ToInt16(asciiBytes, i * 2);
+                        }
+
+                        // ***************************************************************
+
                         job.Ilerleme = 50;
+
+                        // Artık içinde lokal ismi de barındıran reçeteyi CSV'ye çevir.
                         string csvContent = RecipeCsvConverter.ToCsv(fullRecipe);
-                        string remoteFileName = $"{job.YerelRecete.Id}.csv"; // Örnek isimlendirme
-                        await ftpService.UploadFileAsync(remoteFileName, csvContent);
+
+                        // HMI'a sıralı dosya adıyla ("XPR0098.csv") gönder.
+                        await ftpService.UploadFileAsync(job.HedefDosyaAdi, csvContent);
                     }
-                    else // Alma işlemi
+                    else // Alma işlemi (Bu kısım aynı kalacak)
                     {
-                        string remoteFilePath = $"/{job.UzakDosyaAdi}";
-                        string csvContent = await ftpService.DownloadFileAsync(remoteFilePath);
+                        var csvContent = await ftpService.DownloadFileAsync(job.UzakDosyaAdi);
                         job.Ilerleme = 50;
-
-                        // --- DEĞİŞİKLİK BURADA BAŞLIYOR ---
-
-                        // ESKİ SATIRI SİLİN (Eğer varsa):
-                        // string newRecipeName = $"HMI_{Path.GetFileNameWithoutExtension(job.UzakDosyaAdi)}_{DateTime.Now:yyMMddHHmm}";
-                        // ScadaRecipe newRecipe = RecipeCsvConverter.ToRecipe(csvContent, newRecipeName);
-                        // recipeRepo.SaveRecipe(newRecipe);
-
-                        // YERİNE BU DOĞRU KODLARI EKLEYİN:
-
-                        // Önce reçeteyi geçici bir isimle parse et
-                        ScadaRecipe newRecipe = RecipeCsvConverter.ToRecipe(csvContent, "temp_name");
-
-                        // YENİ MANTIK: Özel formata göre yeni ismi oluşturmak için metodu ÇAĞIRIN
-                        string newRecipeName = GenerateNewRecipeName(job, newRecipe, recipeRepo);
-
-                        // Final ismini ata ve kaydet
-                        newRecipe.RecipeName = newRecipeName;
-                        recipeRepo.SaveRecipe(newRecipe);
-                        // YENİ EKLENEN SATIR: İşlem bitince olayı tetikle!
+                        var tempRecipe = RecipeCsvConverter.ToRecipe(csvContent, job.UzakDosyaAdi);
+                        string newFormattedName = this.GenerateNewRecipeName(job, tempRecipe, recipeRepo);
+                        tempRecipe.RecipeName = newFormattedName;
+                        tempRecipe.TargetMachineType = !string.IsNullOrEmpty(job.Makine.MachineSubType) ? job.Makine.MachineSubType : job.Makine.MachineType;
+                        recipeRepo.AddOrUpdateRecipe(tempRecipe);
                         RecipeListChanged?.Invoke(this, EventArgs.Empty);
-                        // --- DEĞİŞİKLİK BURADA BİTİYOR ---
                     }
 
                     job.Ilerleme = 100;
@@ -277,9 +311,38 @@ namespace TekstilScada.Services
                     job.Durum = TransferStatus.Hatalı;
                     job.HataMesaji = ex.Message;
                 }
+                finally
+                {
+                    _syncContext?.Post(_ => { }, null);
+                }
             }
             _isProcessing = false;
         }
+        public void QueueSequentiallyNamedSendJobs(List<ScadaRecipe> receteler, List<Machine> makineler, int startNumber)
+        {
+            int currentRecipeNumber = startNumber;
+            foreach (var recete in receteler)
+            {
+                // Hedef dosya adını formatla (örn: XPR0070.csv)
+                string hedefDosyaAdi = $"XPR{currentRecipeNumber:D5}.csv";
 
+                foreach (var makine in makineler)
+                {
+                    // Aynı işin kuyrukta olup olmadığını kontrol et (opsiyonel ama iyi bir pratik)
+                    if (!Jobs.Any(j => j.Makine.Id == makine.Id && j.YerelRecete?.Id == recete.Id && j.HedefDosyaAdi == hedefDosyaAdi))
+                    {
+                        Jobs.Add(new TransferJob
+                        {
+                            Makine = makine,
+                            YerelRecete = recete,
+                            IslemTipi = TransferType.Gonder,
+                            HedefDosyaAdi = hedefDosyaAdi // YENİ
+                        });
+                    }
+                }
+                currentRecipeNumber++; // Bir sonraki reçete için numarayı artır
+            }
+            StartProcessingIfNotRunning();
+        }
     }
 }

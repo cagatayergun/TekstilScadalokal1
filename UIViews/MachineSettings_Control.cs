@@ -17,7 +17,7 @@ namespace TekstilScada.UI.Views
         private readonly MachineRepository _repository;
         private List<TekstilScada.Models.Machine> _machines;
         private TekstilScada.Models.Machine _selectedMachine;
-
+        private List<object> _machineTypeOptions;
         public MachineSettings_Control()
         {
             LanguageManager.LanguageChanged += LanguageManager_LanguageChanged;
@@ -27,6 +27,7 @@ namespace TekstilScada.UI.Views
         private void LanguageManager_LanguageChanged(object sender, EventArgs e)
         {
             ApplyLocalization();
+            PopulateMachineTypeComboBox();
 
         }
         public void ApplyLocalization()
@@ -50,13 +51,27 @@ namespace TekstilScada.UI.Views
         }
         private void MachineSettings_Control_Load(object sender, EventArgs e)
         {
-            cmbMachineType.Items.Add($"{Resources.bymakinesi}");
-            cmbMachineType.Items.Add($"{Resources.kurutmamakinesi}");
-            cmbMachineType.SelectedIndex = 0;
 
+            // ComboBox'ı ilk defa doldur ve makineleri listele.
+            PopulateMachineTypeComboBox();
             RefreshMachineList();
+            ApplyLocalization(); // Metinleri ilk yüklemede de uygula
         }
+        private void PopulateMachineTypeComboBox()
+        {
+            // 1. Dilden bağımsız anahtarları ("Value") ve çevrilmiş metinleri ("Display") içeren listeyi oluştur.
+            _machineTypeOptions = new List<object>
+            {
+                new { Display = Resources.bymakinesi,       Value = "BY Makinesi" },
+                new { Display = Resources.kurutmamakinesi,  Value = "Kurutma Makinesi" }
+            };
 
+            // 2. ComboBox'ı bu listeye bağla.
+            cmbMachineType.DataSource = null; // Önceki bağlantıyı temizle
+            cmbMachineType.DataSource = _machineTypeOptions;
+            cmbMachineType.DisplayMember = "Display"; // Kullanıcı çevrilmiş metni görecek
+            cmbMachineType.ValueMember = "Value";     // Arka planda dilden bağımsız anahtar tutulacak
+        }
         private void RefreshMachineList()
         {
             try
@@ -95,7 +110,7 @@ namespace TekstilScada.UI.Views
             txtPort.Text = machine.Port.ToString();
             txtVncAddress.Text = machine.VncAddress;
             chkIsEnabled.Checked = machine.IsEnabled;
-            cmbMachineType.SelectedItem = machine.MachineType;
+            cmbMachineType.SelectedValue = machine.MachineType;
             // YENİ: FTP alanlarını doldur
             txtFtpUsername.Text = machine.FtpUsername;
             txtFtpPassword.Text = machine.FtpPassword;
@@ -144,7 +159,7 @@ namespace TekstilScada.UI.Views
                         Port = int.Parse(txtPort.Text),
                         VncAddress = txtVncAddress.Text,
                         IsEnabled = chkIsEnabled.Checked,
-                        MachineType = cmbMachineType.SelectedItem.ToString(),
+                        MachineType = cmbMachineType.SelectedValue.ToString(),
                         // YENİ: FTP alanlarını oku
                         FtpUsername = txtFtpUsername.Text,
                         FtpPassword = txtFtpPassword.Text,
@@ -161,7 +176,7 @@ namespace TekstilScada.UI.Views
                     _selectedMachine.Port = int.Parse(txtPort.Text);
                     _selectedMachine.VncAddress = txtVncAddress.Text;
                     _selectedMachine.IsEnabled = chkIsEnabled.Checked;
-                    _selectedMachine.MachineType = cmbMachineType.SelectedItem.ToString();
+                    _selectedMachine.MachineType = cmbMachineType.SelectedValue.ToString();
                     // YENİ: FTP alanlarını oku
                     _selectedMachine.FtpUsername = txtFtpUsername.Text;
                     _selectedMachine.FtpPassword = txtFtpPassword.Text;

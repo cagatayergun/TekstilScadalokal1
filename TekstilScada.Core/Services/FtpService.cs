@@ -1,10 +1,12 @@
 ﻿// Services/FtpService.cs
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TekstilScada.Models;
 using WinSCP; // WinSCP kütüphanesini kullanıyoruz
 
 namespace TekstilScada.Services
@@ -106,5 +108,6 @@ namespace TekstilScada.Services
 
             File.Delete(tempFile);
         }
+    
     }
 }

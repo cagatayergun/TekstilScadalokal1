@@ -110,7 +110,21 @@ namespace TekstilScada.Repositories
                 }
             }
         }
+        public void AddOrUpdateRecipe(ScadaRecipe recipe)
+        {
+            // Bu metot artık doğrudan çağrılacak. İsim kontrolünü kendisi yapacak.
+            var existingRecipe = GetAllRecipes().FirstOrDefault(r => r.RecipeName == recipe.RecipeName && r.TargetMachineType == recipe.TargetMachineType);
 
+            if (existingRecipe != null)
+            {
+                recipe.Id = existingRecipe.Id;
+                UpdateRecipe(recipe); // Mevcut UpdateRecipe metodunuzu çağırır
+            }
+            else
+            {
+                AddRecipe(recipe); // Mevcut AddRecipe metodunuzu çağırır
+            }
+        }
         // YENİ: Hata veren eksik metot eklendi.
         public List<ScadaRecipe> GetAllRecipes()
         {

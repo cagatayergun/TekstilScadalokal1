@@ -1,6 +1,7 @@
 ﻿// Core/RecipeCsvConverter.cs
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using TekstilScada.Models;
@@ -18,19 +19,31 @@ namespace TekstilScada.Core
 
             var csvBuilder = new StringBuilder();
 
-            // ÖNEMLİ: Buradaki mantık, HMI'daki CSV dosyasının formatına
-            // birebir uymalıdır. Bu bir varsayımdır.
-            // Örnek: Her satır bir adımı, her sütun bir Word'ü temsil eder.
+            // *** NİHAİ DÜZELTME BAŞLANGICI ***
+            // Başlık bölümü, XPR00001.csv formatıyla %100 uyumlu hale getirildi.
+            // Ayraç olarak virgül (,) yerine TAB (\t) kullanıldı ve Title boş bırakıldı.
 
-            // Başlık satırı (opsiyonel, HMI formatına bağlı)
-            // csvBuilder.AppendLine("Step,Word0,Word1,...,Word24");
+            // Tarih formatını "M/d/yyyy h:mm:ss tt" (örnek: 7/28/2025 6:26:00 PM) olarak ayarlıyoruz.
+            string formattedDate = DateTime.Now.ToString("M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture);
+            csvBuilder.AppendLine($"Date\t{formattedDate}");
 
+            // Title boş bırakılıyor.
+            csvBuilder.AppendLine("Title\t");
+
+            // Toplam değer sayısı (adım sayısı * adım başına word sayısı)
+            int itemCount = recipe.Steps.Count * 25;
+            csvBuilder.AppendLine($"Item Count\t{itemCount}");
+
+            // Veri bölümü: Her bir word değeri ayrı bir satıra yazdırılıyor.
+            // Bu kısım zaten doğruydu ve HMI'ın beklentisiyle uyumluydu.
             foreach (var step in recipe.Steps)
             {
-                // StepDataWords dizisindeki 25 short değeri virgülle ayırarak birleştir
-                string line = string.Join(",", step.StepDataWords.Select(w => w.ToString()));
-                csvBuilder.AppendLine(line);
+                foreach (var word in step.StepDataWords)
+                {
+                    csvBuilder.AppendLine(word.ToString());
+                }
             }
+            // *** NİHAİ DÜZELTME SONU ***
 
             return csvBuilder.ToString();
         }
@@ -43,27 +56,21 @@ namespace TekstilScada.Core
             var recipe = new ScadaRecipe { RecipeName = recipeName };
             if (string.IsNullOrWhiteSpace(csvContent)) return recipe;
 
-            var lines = csvContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                                  .ToList();
+            var lines = csvContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).ToList();
 
-            // Eğer dosya başlık içeriyorsa (XPR00001.csv formatı gibi), bu başlıkları atla
-            // Örnek: "Date", "Title", "Item Count" gibi başlıklar varsa atlanır.
             int dataStartIndex = 0;
             if (lines.Count > 3 && lines[0].StartsWith("Date") && lines[2].StartsWith("Item Count"))
             {
                 dataStartIndex = 3;
             }
 
-            // Sadece sayısal veri içeren satırları al
             var numericLines = lines.Skip(dataStartIndex)
-                                    .Where(line => short.TryParse(line, out _))
+                                    .Where(line => short.TryParse(line.Trim(), out _))
                                     .ToList();
 
             int stepNumber = 1;
-            // Verileri 25'erli gruplara ayırarak adımları oluştur
             for (int i = 0; i < numericLines.Count; i += 25)
             {
-                // Grubun 25 eleman içerdiğinden emin ol
                 var stepValues = numericLines.Skip(i).Take(25).ToList();
                 if (stepValues.Count == 25)
                 {
@@ -78,13 +85,10 @@ namespace TekstilScada.Core
                     }
                     catch
                     {
-                        // Hatalı satırları logla veya yoksay
+                        // Hatalı satırları yoksay
                     }
                 }
             }
-
-            // Eğer yukarıdaki mantıkla veri bulunamazsa, orijinal virgülle ayrılmış formatı dene
-         
 
             return recipe;
         }
