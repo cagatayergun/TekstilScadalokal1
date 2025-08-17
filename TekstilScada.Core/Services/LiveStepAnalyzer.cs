@@ -14,11 +14,15 @@ namespace TekstilScada.Core.Services
         private DateTime? _currentPauseStartTime;
         private double _currentStepPauseSeconds = 0;
 
+        // --- Durum Yönetimi İçin Değişkenler ---
+        private int _pendingStepNumber = 0; // Onaylanmayı bekleyen yeni adım numarası
+        private DateTime? _pendingStepTimestamp = null; // Adım değişikliğinin tespit edildiği zaman
+        private const int StepReadDelaySeconds = 3; // Adım ismini okumadan önce beklenecek süre (saniye)
+
         public List<ProductionStepDetail> AnalyzedSteps { get; }
         public ScadaRecipe Recipe { get; private set; }
         public DateTime CurrentStepStartTime { get; private set; }
 
-        private const double SECONDS_PER_LITER = 0.5;
 
         public LiveStepAnalyzer(ScadaRecipe recipe)
         {
@@ -28,10 +32,12 @@ namespace TekstilScada.Core.Services
             CurrentStepStartTime = DateTime.Now;
         }
 
+        // ✅ TAMAMEN GÜNCELLENMİŞ METOT
         public bool ProcessData(FullMachineStatus status)
         {
             bool hasStepChanged = false;
 
+            // Duraklatma (Pause) mantığı
             if (status.IsPaused && !_currentPauseStartTime.HasValue)
             {
                 _currentPauseStartTime = DateTime.Now;
@@ -42,42 +48,69 @@ namespace TekstilScada.Core.Services
                 _currentPauseStartTime = null;
             }
 
-            if (status.AktifAdimNo != _currentStepNumber)
+            // --- 1. AŞAMA: ONAY BEKLEYEN ADIMI İŞLEME ---
+            // Eğer onay bekleyen bir adım varsa ve 3 saniyelik gecikme süresi dolmuşsa...
+            if (_pendingStepNumber != 0 && _pendingStepTimestamp.HasValue && (DateTime.Now - _pendingStepTimestamp.Value).TotalSeconds >= StepReadDelaySeconds)
             {
+                // Gecikme süresi doldu. Adım tipini şimdi okumak güvenli.
+                // PLC'den gelen adım tipini kontrol et. Eğer 0 ise (boş/tanımsız adım), bu adımı kaydetme.
+                if (status.AktifAdimTipiWordu != 0 && status.AktifAdimNo == _pendingStepNumber)
+                {
+                    // Adım tipi geçerli. Yeni adımı başlat.
+                    StartNewStep(status);
+                    hasStepChanged = true; // Arayüzün güncellenmesi için true döndür
+                }
+
+                // Bekleme durumunu sıfırla. Adım ister kaydedilsin ister edilmesin, bu durum bitti.
+                _pendingStepNumber = 0;
+                _pendingStepTimestamp = null;
+            }
+
+            // --- 2. AŞAMA: YENİ ADIM DEĞİŞİKLİĞİNİ TESPİT ETME ---
+            // PLC'den gelen adım numarası bizim takip ettiğimizden farklıysa ve beklemede olan bir adım yoksa...
+            if (status.AktifAdimNo != _currentStepNumber && _pendingStepNumber == 0)
+            {
+                // Mevcut adımı bitir (sürelerini hesapla ve kaydet).
                 if (_currentStepNumber > 0)
                 {
                     FinalizeStep(_currentStepNumber);
                 }
 
+                // Atlanan adımları işle
                 HandleSkippedSteps(status, _currentStepNumber + 1, status.AktifAdimNo);
-                StartNewStep(status);
-                hasStepChanged = true;
+
+                // Yeni adımı hemen başlatma, "onay bekliyor" olarak işaretle.
+                _pendingStepNumber = status.AktifAdimNo;
+                _pendingStepTimestamp = DateTime.Now;
+
+                // Takip ettiğimiz adım numarasını şimdi güncelle ki bu blok tekrar tekrar tetiklenmesin.
+                _currentStepNumber = status.AktifAdimNo;
             }
 
             return hasStepChanged;
         }
 
+        // ✅ BASİTLEŞTİRİLMİŞ METOT
         private void StartNewStep(FullMachineStatus status)
         {
-            _currentStepNumber = status.AktifAdimNo;
             CurrentStepStartTime = DateTime.Now;
             _currentPauseStartTime = null;
             _currentStepPauseSeconds = 0;
 
-            var recipeStep = _recipe.Steps.FirstOrDefault(s => s.StepNumber == _currentStepNumber);
-            if (recipeStep != null)
+            // Teorik zamanı hesaplamak için reçetedeki orijinal adımı bulalım.
+            var recipeStep = _recipe.Steps.FirstOrDefault(s => s.StepNumber == status.AktifAdimNo);
+
+            AnalyzedSteps.Add(new ProductionStepDetail
             {
-                AnalyzedSteps.Add(new ProductionStepDetail
-                {
-                    StepNumber = _currentStepNumber,
-                    // YENİ: Adım adı artık PLC'den gelen anlık tipe göre belirleniyor
-                    StepName = GetStepTypeName(status.AktifAdimTipiWordu),
-                    TheoreticalTime = CalculateTheoreticalTime(recipeStep),
-                    WorkingTime = "İşleniyor...",
-                    StopTime = "00:00:00",
-                    DeflectionTime = ""
-                });
-            }
+                StepNumber = status.AktifAdimNo,
+                // Adım adı, 3 saniyelik gecikme sonrası okunan güncel PLC verisinden alınıyor.
+                StepName = GetStepTypeName(status.AktifAdimTipiWordu),
+                TheoreticalTime = CalculateTheoreticalTime(status.AktifAdimDataWords),
+               
+                WorkingTime = "İşleniyor...",
+                StopTime = "00:00:00",
+                DeflectionTime = ""
+            });
         }
 
         private void FinalizeStep(int stepNumber)
@@ -95,7 +128,9 @@ namespace TekstilScada.Core.Services
             }
             stepToFinalize.StopTime = TimeSpan.FromSeconds(_currentStepPauseSeconds).ToString(@"hh\:mm\:ss");
 
-            TimeSpan theoreticalTime = TimeSpan.Parse(stepToFinalize.TheoreticalTime);
+            TimeSpan theoreticalTime;
+            TimeSpan.TryParse(stepToFinalize.TheoreticalTime, out theoreticalTime);
+
             TimeSpan actualWorkTime = workingTime - TimeSpan.FromSeconds(_currentStepPauseSeconds);
             TimeSpan deflection = actualWorkTime - theoreticalTime;
 
@@ -103,12 +138,13 @@ namespace TekstilScada.Core.Services
             stepToFinalize.DeflectionTime = $"{sign}{deflection:hh\\:mm\\:ss}";
         }
 
+        // Bu metotları olduğu gibi bırakabilirsiniz
         private void HandleSkippedSteps(FullMachineStatus status, int fromStep, int toStep)
         {
             for (int i = fromStep; i < toStep; i++)
             {
                 var recipeStep = _recipe.Steps.FirstOrDefault(s => s.StepNumber == i);
-                if (recipeStep != null)
+                if (recipeStep != null && recipeStep.StepDataWords[24] != 0) // Atlanan adımın boş olmadığını kontrol et
                 {
                     string skippedStepName = GetStepTypeName(recipeStep.StepDataWords[24]) + " (Atlandı)";
 
@@ -130,6 +166,7 @@ namespace TekstilScada.Core.Services
             return AnalyzedSteps.LastOrDefault(s => s.WorkingTime != "İşleniyor...");
         }
 
+        private const double SECONDS_PER_LITER = 0.5;
         private string CalculateTheoreticalTime(ScadaRecipeStep step)
         {
             var parallelDurations = new List<double>();
@@ -152,9 +189,10 @@ namespace TekstilScada.Core.Services
             return TimeSpan.FromSeconds(maxDurationSeconds).ToString(@"hh\:mm\:ss");
         }
 
-        // YENİ: Bu metot artık PLC'den gelen anlık kontrol word'ünü çözümlüyor.
         private string GetStepTypeName(short controlWord)
         {
+            if (controlWord == 0) return "Tanımsız Adım"; // Artık bu durum oluşmamalı ama önlem olarak kalabilir
+
             var stepTypes = new List<string>();
             if ((controlWord & 1) != 0) stepTypes.Add("Su Alma");
             if ((controlWord & 2) != 0) stepTypes.Add("Isıtma");
@@ -163,6 +201,33 @@ namespace TekstilScada.Core.Services
             if ((controlWord & 16) != 0) stepTypes.Add("Boşaltma");
             if ((controlWord & 32) != 0) stepTypes.Add("Sıkma");
             return stepTypes.Any() ? string.Join(" + ", stepTypes) : "Bekliyor...";
+        }
+        // LiveStepAnalyzer.cs dosyasının içine bu YENİ metodu ekleyin.
+
+        private string CalculateTheoreticalTime(short[] stepDataWords)
+        {
+            // Bu metot, ScadaRecipeStep nesnesi yerine doğrudan PLC'den gelen
+            // ham word dizisini kullanarak hesaplama yapar.
+            var parallelDurations = new List<double>();
+            short controlWord = stepDataWords[24];
+
+            if ((controlWord & 1) != 0) parallelDurations.Add(new SuAlmaParams(stepDataWords).MiktarLitre * SECONDS_PER_LITER);
+            if ((controlWord & 8) != 0)
+            {
+                var dozajParams = new DozajParams(stepDataWords);
+                double dozajSuresi = 0;
+                if (dozajParams.AnaTankMakSu || dozajParams.AnaTankTemizSu) { dozajSuresi += 60; }
+                dozajSuresi += dozajParams.CozmeSure;
+                if (dozajParams.Tank1Dozaj) { dozajSuresi += dozajParams.DozajSure; }
+                parallelDurations.Add(dozajSuresi);
+            }
+            if ((controlWord & 2) != 0) parallelDurations.Add(new IsitmaParams(stepDataWords).Sure * 60);
+            if ((controlWord & 4) != 0) parallelDurations.Add(new CalismaParams(stepDataWords).CalismaSuresi * 60);
+            if ((controlWord & 16) != 0) parallelDurations.Add(120); // Boşaltma sabit 120 sn
+            if ((controlWord & 32) != 0) parallelDurations.Add(new SikmaParams(stepDataWords).SikmaSure * 60);
+
+            double maxDurationSeconds = parallelDurations.Any() ? parallelDurations.Max() : 0;
+            return TimeSpan.FromSeconds(maxDurationSeconds).ToString(@"hh\:mm\:ss");
         }
     }
 }

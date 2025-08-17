@@ -169,6 +169,23 @@ namespace TekstilScada.Services
                             CheckAndLogBatchStartAndEnd(machine.Id, newStatus);
                             CheckAndLogAlarms(machine.Id, newStatus);
                             status = newStatus;
+
+                            if (_currentBatches.TryGetValue(machine.Id, out var activeBatch) && activeBatch != null)
+                            {
+                                if (_liveAlarmCounters.TryGetValue(machine.Id, out var counters))
+                                {
+                                    // Alarm durumu, duraklatma durumundan önceliklidir.
+                                    if (newStatus.HasActiveAlarm)
+                                    {
+                                        counters.machineAlarmSeconds += _pollingIntervalMs / 1000;
+                                    }
+                                    else if (newStatus.IsPaused)
+                                    {
+                                        counters.operatorPauseSeconds += _pollingIntervalMs / 1000;
+                                    }
+                                    _liveAlarmCounters[machine.Id] = counters;
+                                }
+                            }
                         }
                         else
                         {

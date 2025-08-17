@@ -16,7 +16,7 @@ namespace TekstilScada.Models
         public short AnlikDevirRpm { get; set; }
         public short AnlikSicaklik { get; set; }
         public short ProsesYuzdesi { get; set; }
-
+        public short[] AktifAdimDataWords { get; set; }
         // Durum Bayrakları
         public bool IsInRecipeMode { get; set; }
         public bool IsPaused { get; set; }

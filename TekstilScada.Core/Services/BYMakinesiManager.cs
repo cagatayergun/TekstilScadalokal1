@@ -1,5 +1,6 @@
 ﻿// Services/BYMakinesiManager.cs
 using HslCommunication;
+using HslCommunication.Core;
 using HslCommunication.Profinet.LSIS;
 using System;
 using System.Collections.Generic;
@@ -189,7 +190,14 @@ namespace TekstilScada.Services
                 var readActualQuantity = _plcClient.ReadInt16(ActualQuantity);
                 if (!readActualQuantity.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(readActualQuantity);
                 status.ActualQuantityProduction = readActualQuantity.Content;
-                
+
+                var stepDataResult = _plcClient.ReadInt16("D70", 25);
+                if (!stepDataResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(stepDataResult);
+
+                // Okunan 25 word'lük veriyi, status nesnesinin içindeki yeni özelliğimize atıyoruz.
+                status.AktifAdimDataWords = stepDataResult.Content;
+
+
                 if (adimNoResult.IsSuccess)
                 {
                     status.AktifAdimNo = adimNoResult.Content;

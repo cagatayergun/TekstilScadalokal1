@@ -64,72 +64,139 @@ namespace TekstilScada.UI
 
             
         }
+        // TekstilScada/UI/ProductionDetail_Form.cs
+
         private void LoadPieChart()
         {
-            // 1. HAZIR VERİLERİ AL
+            // 1. HAZIR VERİLERİ SANİYE OLARAK AL
             double totalMachineAlarmSeconds = _reportItem.MachineAlarmDurationSeconds;
             double totalOperatorPauseSeconds = _reportItem.OperatorPauseDurationSeconds;
             double totalBatchSeconds = (_reportItem.EndTime - _reportItem.StartTime).TotalSeconds;
 
-            // 2. AKTİF SÜREYİ HESAPLA
+            // 2. AKTİF SÜREYİ SANİYE OLARAK HESAPLA
             double activeWorkingSeconds = totalBatchSeconds - totalMachineAlarmSeconds - totalOperatorPauseSeconds;
             if (activeWorkingSeconds < 0) activeWorkingSeconds = 0;
 
-            // 3. GRAFİĞİ ÇİZ (Bu kod artık doğru ve basit)
+            // 3. GRAFİĞİ TEMİZLE
             pieChartControl.Series.Clear();
             pieChartControl.Legends.Clear();
 
-            Series series = new Series
+            // 4. YENİ SERİYİ OLUŞTUR
+            System.Windows.Forms.DataVisualization.Charting.Series series = new System.Windows.Forms.DataVisualization.Charting.Series("Süre Dağılımı")
             {
-                Name = "Süre Dağılımı",
-                IsVisibleInLegend = true,
-                ChartType = SeriesChartType.Pie,
+                ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Pie,
                 Font = new System.Drawing.Font("Arial", 10f, System.Drawing.FontStyle.Bold),
-                LabelForeColor = System.Drawing.Color.White
+                LabelForeColor = System.Drawing.Color.White,
+                IsValueShownAsLabel = true
             };
             pieChartControl.Series.Add(series);
 
-            if (activeWorkingSeconds > 1)
-                series.Points.AddXY("Aktif Çalışma (dk)", Math.Round(activeWorkingSeconds / 60));
-            if (totalMachineAlarmSeconds > 1)
-                series.Points.AddXY("Makine Alarmı (dk)", Math.Round(totalMachineAlarmSeconds / 60));
-            if (totalOperatorPauseSeconds > 1)
-                series.Points.AddXY("Operatör Duraklatma (dk)", Math.Round(totalOperatorPauseSeconds / 60));
+            // 5. VERİ NOKTALARINI SANİYE DEĞERLERİYLE EKLE
+            if (activeWorkingSeconds > 0)
+            {
+                // ✅ DÜZELTME: Tam yolu belirtildi
+                System.Windows.Forms.DataVisualization.Charting.DataPoint dp = new System.Windows.Forms.DataVisualization.Charting.DataPoint(0, activeWorkingSeconds);
+                dp.Color = System.Drawing.Color.DodgerBlue; // ✅ DÜZELTME
+                dp.LegendText = $"Aktif Çalışma ({TimeSpan.FromSeconds(activeWorkingSeconds):hh\\:mm\\:ss})";
+                series.Points.Add(dp);
+            }
+            if (totalMachineAlarmSeconds > 0)
+            {
+                // ✅ DÜZELTME: Tam yolu belirtildi
+                System.Windows.Forms.DataVisualization.Charting.DataPoint dp = new System.Windows.Forms.DataVisualization.Charting.DataPoint(0, totalMachineAlarmSeconds);
+                dp.Color = System.Drawing.Color.Crimson; // ✅ DÜZELTME
+                dp.LegendText = $"Makine Alarmı ({TimeSpan.FromSeconds(totalMachineAlarmSeconds):hh\\:mm\\:ss})";
+                series.Points.Add(dp);
+            }
+            if (totalOperatorPauseSeconds > 0)
+            {
+                // ✅ DÜZELTME: Tam yolu belirtildi
+                System.Windows.Forms.DataVisualization.Charting.DataPoint dp = new System.Windows.Forms.DataVisualization.Charting.DataPoint(0, totalOperatorPauseSeconds);
+                dp.Color = System.Drawing.Color.Orange; // ✅ DÜZELTME
+                dp.LegendText = $"Operatör Duraklatma ({TimeSpan.FromSeconds(totalOperatorPauseSeconds):hh\\:mm\\:ss})";
+                series.Points.Add(dp);
+            }
 
-            series.IsValueShownAsLabel = true;
+            if (series.Points.Count == 0)
+            {
+                // ✅ DÜZELTME: Tam yolu belirtildi
+                System.Windows.Forms.DataVisualization.Charting.DataPoint dp = new System.Windows.Forms.DataVisualization.Charting.DataPoint(0, 1);
+                dp.Color = System.Drawing.Color.Gray; // ✅ DÜZELTME
+                dp.LegendText = "Veri Yok";
+                dp.IsValueShownAsLabel = false;
+                series.Points.Add(dp);
+            }
+
+            // 6. ETİKET VE GÖSTERGELERİ AYARLA
             series.Label = "#PERCENT{P0}";
 
-            System.Windows.Forms.DataVisualization.Charting.Legend legend = new System.Windows.Forms.DataVisualization.Charting.Legend
+            System.Windows.Forms.DataVisualization.Charting.Legend legend = new System.Windows.Forms.DataVisualization.Charting.Legend("Süreler")
             {
-                Name = "Süreler",
-                Docking = Docking.Bottom,
-                Alignment = StringAlignment.Center
+                Docking = System.Windows.Forms.DataVisualization.Charting.Docking.Bottom,
+                Alignment = System.Drawing.StringAlignment.Center,
+                Font = new System.Drawing.Font("Arial", 9f)
             };
             pieChartControl.Legends.Add(legend);
-            series.LegendText = "#VALX";
+
+            series.LegendText = "#LEGENDTEXT";
 
             pieChartControl.Invalidate();
         }
 
         // FormLoad metodundan LoadPieChart çağrısını parametresiz yap
-     
 
+
+
+        // dgvStepDetails_CellFormatting metodunun içine bu kodu ekleyin.
 
         private void dgvStepDetails_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
-            // Sadece "DeflectionTime" veya "Sapma" isimli sütun için çalış
-            if (dgvStepDetails.Columns[e.ColumnIndex].DataPropertyName == "DeflectionTime" && e.Value != null)
+            // Sadece "Gerçekleşen Süre" (WorkingTime) sütununda çalış ve satırın boş olmadığından emin ol.
+            if (e.RowIndex >= 0 && dgvStepDetails.Columns[e.ColumnIndex].Name == "WorkingTime")
             {
-                string deflectionValue = e.Value.ToString();
-                if (deflectionValue.StartsWith("+"))
+                // "İşleniyor..." yazan adımları atla
+                if (e.Value == null || e.Value.ToString() == "İşleniyor...")
                 {
-                    e.CellStyle.BackColor = System.Drawing.Color.FromArgb(255, 204, 203); // Açık Kırmızı
-                    e.CellStyle.ForeColor = System.Drawing.Color.DarkRed;
+                    e.CellStyle.BackColor = dgvStepDetails.DefaultCellStyle.BackColor;
+                    return;
                 }
-                else if (deflectionValue.StartsWith("-"))
+
+                try
                 {
-                    e.CellStyle.BackColor = System.Drawing.Color.FromArgb(204, 255, 204); // Açık Yeşil
-                    e.CellStyle.ForeColor = System.Drawing.Color.DarkGreen;
+                    // Teorik ve Gerçekleşen süreleri TimeSpan nesnelerine çevir
+                    TimeSpan theoreticalTime;
+                    TimeSpan.TryParse(dgvStepDetails.Rows[e.RowIndex].Cells["TheoreticalTime"].Value.ToString(), out theoreticalTime);
+
+                    TimeSpan workingTime;
+                    TimeSpan.TryParse(e.Value.ToString(), out workingTime);
+
+                    // Dakika bazında farkı hesapla (saniyeleri göz ardı et)
+                    int theoreticalMinutes = (int)theoreticalTime.TotalMinutes;
+                    int workingMinutes = (int)workingTime.TotalMinutes;
+
+                    // Fark 1 dakikadan fazlaysa kırmızı yap
+                    if (workingMinutes > theoreticalMinutes)
+                    {
+                        e.CellStyle.BackColor = System.Drawing.Color.LightCoral;
+                        e.CellStyle.ForeColor = System.Drawing.Color.Black; // Yazı rengini siyah yap
+                    }
+                    // Fark -1 dakikadan azsa yeşil yap
+                    else if (workingMinutes < theoreticalMinutes)
+                    {
+                        e.CellStyle.BackColor = System.Drawing.Color.LightGreen;
+                        e.CellStyle.ForeColor = System.Drawing.Color.Black;
+                    }
+                    // Fark 1 dakika içindeyse veya eşitse varsayılan renge döndür
+                    else
+                    {
+                        e.CellStyle.BackColor = dgvStepDetails.DefaultCellStyle.BackColor;
+                        e.CellStyle.ForeColor = dgvStepDetails.DefaultCellStyle.ForeColor;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Bir hata olursa varsayılan renkte bırak
+                    e.CellStyle.BackColor = dgvStepDetails.DefaultCellStyle.BackColor;
                 }
             }
         }
