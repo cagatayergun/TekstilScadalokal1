@@ -7,12 +7,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using TekstilScada.Models; // BU SATIR EKLENDİ
+using TekstilScada.Models;
 
 namespace TekstilScada.Services
 {
-    // BatchSummaryData ve ChemicalConsumptionData sınıfları buradan SİLİNDİ.
-
     public class BYMakinesiManager : IPlcManager
     {
         private readonly LSFastEnet _plcClient;
@@ -42,13 +40,7 @@ namespace TekstilScada.Services
         private const string TOPLAM_URETIM_ADEDI = "D7768";
         private const string HATALI_URETIM_ADEDI = "D7770";
         private const string ActualQuantity = "D7790";
-
-
-
-
-
-
-
+        private const string AKTIF_ADIM_TIPI_WORDU = "D94"; // YENİ: Doğrudan adım tipini okuyacağımız adres
         #endregion
         public BYMakinesiManager(string ipAddress, int port)
         {
@@ -56,9 +48,6 @@ namespace TekstilScada.Services
             this.IpAddress = ipAddress;
             _plcClient.ReceiveTimeOut = 5000;
         }
-
-        // ... Bu dosyanın geri kalan tüm metotları aynı kalacak ...
-        // (Connect, Disconnect, ReadLiveStatusData, WriteRecipeToPlcAsync vb.)
 
         public OperateResult Connect()
         {
@@ -77,21 +66,16 @@ namespace TekstilScada.Services
         }
         private OperateResult<string> ReadStringFromWords(string address, ushort wordLength)
         {
-            // Veriyi önce ham word dizisi olarak oku
             var readResult = _plcClient.ReadInt16(address, wordLength);
             if (!readResult.IsSuccess)
             {
-                // Hata durumunda, hangi adreste sorun olduğunu belirterek geri dön
                 return OperateResult.CreateFailedResult<string>(new OperateResult($"Adres bloğu okunamadı: {address}, Hata: {readResult.Message}"));
             }
 
             try
             {
-                // Okunan word dizisini byte dizisine çevir
                 byte[] byteData = new byte[readResult.Content.Length * 2];
                 Buffer.BlockCopy(readResult.Content, 0, byteData, 0, byteData.Length);
-
-                // Byte dizisini ASCII metne çevir ve gereksiz karakterleri temizle
                 string value = Encoding.ASCII.GetString(byteData).Trim('\0', ' ');
                 return OperateResult.CreateSuccessResult(value);
             }
@@ -100,6 +84,8 @@ namespace TekstilScada.Services
                 return new OperateResult<string>($"String dönüşümü sırasında hata: {ex.Message}");
             }
         }
+
+        // GÜNCELLENDİ: Eksik veri okuma işlemleri eklendi
         public OperateResult<FullMachineStatus> ReadLiveStatusData()
         {
             var errorMessages = new List<string>();
@@ -107,16 +93,18 @@ namespace TekstilScada.Services
             {
                 var status = new FullMachineStatus();
                 bool anyReadFailed = false;
+                // YENİ VE KESİN ÇÖZÜM: Adım tipini doğrudan D94'ten oku.
+                var adimTipiResult = _plcClient.ReadInt16(AKTIF_ADIM_TIPI_WORDU);
+                if (adimTipiResult.IsSuccess) status.AktifAdimTipiWordu = adimTipiResult.Content;
+                else return OperateResult.CreateFailedResult<FullMachineStatus>(adimTipiResult);
                 var adimNoResult = _plcClient.ReadInt16(ADIM_NO);
                 if (adimNoResult.IsSuccess) status.AktifAdimNo = adimNoResult.Content;
                 else { Debug.WriteLine($"[HATA] {IpAddress} - {ADIM_NO} (Adım No) okunamadı: {adimNoResult.Message}"); anyReadFailed = true; }
-
 
                 var receteModuResult = _plcClient.ReadBool(RECETE_MODU);
                 if (!receteModuResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(receteModuResult);
                 status.IsInRecipeMode = receteModuResult.Content;
 
-              
                 var pauseResult = _plcClient.ReadBool(PAUSE_DURUMU);
                 if (pauseResult.IsSuccess) status.IsPaused = pauseResult.Content;
                 else { Debug.WriteLine($"[HATA] {IpAddress} - {PAUSE_DURUMU} (Pause Durumu) okunamadı: {pauseResult.Message}"); anyReadFailed = true; }
@@ -149,6 +137,18 @@ namespace TekstilScada.Services
                 if (recipeNameResult.IsSuccess) status.RecipeName = recipeNameResult.Content;
                 else { Debug.WriteLine($"[HATA] {IpAddress} - {RECETE_ADI} (Reçete Adı) okunamadı: {recipeNameResult.Message}"); anyReadFailed = true; }
 
+                // YENİ: Eksik olan parti bilgileri okunuyor (Her biri için 5 word = 10 karakter varsayıldı)
+                var siparisNoResult = ReadStringFromWords(SIPARIS_NO, 5);
+                if (siparisNoResult.IsSuccess) status.SiparisNumarasi = siparisNoResult.Content;
+                else { Debug.WriteLine($"[HATA] {IpAddress} - {SIPARIS_NO} (Sipariş No) okunamadı: {siparisNoResult.Message}"); anyReadFailed = true; }
+
+                var musteriNoResult = ReadStringFromWords(MUSTERI_NO, 5);
+                if (musteriNoResult.IsSuccess) status.MusteriNumarasi = musteriNoResult.Content;
+                else { Debug.WriteLine($"[HATA] {IpAddress} - {MUSTERI_NO} (Müşteri No) okunamadı: {musteriNoResult.Message}"); anyReadFailed = true; }
+
+                var batchNoResult = ReadStringFromWords(BATCH_NO, 5);
+                if (batchNoResult.IsSuccess) status.BatchNumarasi = batchNoResult.Content;
+                else { Debug.WriteLine($"[HATA] {IpAddress} - {BATCH_NO} (Batch No) okunamadı: {batchNoResult.Message}"); anyReadFailed = true; }
 
                 var suResult = _plcClient.ReadInt16(SU_MIKTARI);
                 if (!suResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(suResult);
@@ -162,44 +162,51 @@ namespace TekstilScada.Services
                 if (!buharResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(buharResult);
                 status.BuharHarcama = buharResult.Content;
 
-                // YENİ: Çalışma Süresini Oku
                 var runTimeResult = _plcClient.ReadInt16(CALISMA_SURESI);
                 if (!runTimeResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(runTimeResult);
                 status.CalismaSuresiDakika = runTimeResult.Content;
 
-                // --- YENİ: OEE VERİLERİNİ OKUMA ---
                 var isProductionResult = _plcClient.ReadBool(AKTIF_CALISMA);
                 if (!isProductionResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(isProductionResult);
                 status.IsMachineInProduction = isProductionResult.Content;
 
-                // Toplam duruş süresini oku (32-bit)
                 var downTimeResult = _plcClient.ReadInt32(TOPLAM_DURUS_SURESI_SN);
                 if (!downTimeResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(downTimeResult);
-                // Bu değeri kullanacağınız modeldeki ilgili alana atayın. Örnek:
                 status.TotalDownTimeSeconds = downTimeResult.Content;
 
-                // Standart çevrim süresini oku (16-bit)
                 var cycleTimeResult = _plcClient.ReadInt16(STANDART_CEVRIM_SURESI_DK);
                 if (!cycleTimeResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(cycleTimeResult);
-                // Bu değeri kullanacağınız modeldeki ilgili alana atayın. Örnek:
                 status.StandardCycleTimeMinutes = cycleTimeResult.Content;
 
-                // Toplam üretim adedini oku (16-bit)
                 var totalProdResult = _plcClient.ReadInt16(TOPLAM_URETIM_ADEDI);
                 if (!totalProdResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(totalProdResult);
-                // Bu değeri kullanacağınız modeldeki ilgili alana atayın. Örnek:
-                 status.TotalProductionCount = totalProdResult.Content;
+                status.TotalProductionCount = totalProdResult.Content;
 
-                // Hatalı üretim adedini oku (16-bit)
                 var defectiveProdResult = _plcClient.ReadInt16(HATALI_URETIM_ADEDI);
                 if (!defectiveProdResult.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(defectiveProdResult);
-                // Bu değeri kullanacağınız modeldeki ilgili alana atayın. Örnek:
-                 status.DefectiveProductionCount = defectiveProdResult.Content;
-                // Hatalı üretim adedini oku (16-bit)
+                status.DefectiveProductionCount = defectiveProdResult.Content;
+
                 var readActualQuantity = _plcClient.ReadInt16(ActualQuantity);
                 if (!readActualQuantity.IsSuccess) return OperateResult.CreateFailedResult<FullMachineStatus>(readActualQuantity);
                 status.ActualQuantityProduction = readActualQuantity.Content;
+                
+                if (adimNoResult.IsSuccess)
+                {
+                    status.AktifAdimNo = adimNoResult.Content;
 
+                    // YENİ: Aktif adım numarasını öğrendikten sonra, o adımın kontrol word'ünü oku
+                    // GÜNCELLENDİ: Sadece adım numarasını okuyoruz, kontrol word okumasını kaldırdık.
+                   
+                    if (adimNoResult.IsSuccess)
+                    {
+                        status.AktifAdimNo = adimNoResult.Content;
+                    }
+                    else
+                    {
+                        // Hata olursa, daha detaylı bir mesajla geri dönelim.
+                        return OperateResult.CreateFailedResult<FullMachineStatus>(adimNoResult);
+                    }
+                }
 
                 if (errorMessages.Any())
                 {
@@ -209,18 +216,17 @@ namespace TekstilScada.Services
                 }
                 status.ConnectionState = ConnectionStatus.Connected;
                 return OperateResult.CreateSuccessResult(status);
-
-                
             }
             catch (Exception ex)
             {
                 return new OperateResult<FullMachineStatus>($"Okuma sırasında istisna oluştu: {ex.Message}");
             }
         }
+
+        // --- BU DOSYADAKİ DİĞER TÜM METOTLAR (Connect, Disconnect, WriteRecipe vb.) DEĞİŞMEDEN AYNI KALACAK ---
+        #region Mevcut Metotlar (Değişiklik Yok)
         public Task<OperateResult> AcknowledgeAlarm()
         {
-            // TODO: BYMakinesi için alarm onaylama bitini (örn: M100) true yapacak kodu yaz.
-            // Şimdilik NotImplementedException fırlatıyoruz.
             throw new NotImplementedException("BYMakinesi için alarm onaylama henüz implemente edilmedi.");
         }
         public async Task<OperateResult> WriteRecipeToPlcAsync(ScadaRecipe recipe, int? recipeSlot = null)
@@ -297,17 +303,21 @@ namespace TekstilScada.Services
 
             for (int i = 0; i < 5; i++)
             {
-                int offset = i * 12;
+                int offset = i * 12; // 12 word'lük bloklar halinde
+
+                // GÜVENLİ KOD: short[] dizisinden 10 word (20 byte) alıp string'e çeviriyoruz
+                short[] nameWords = new short[10];
+                Array.Copy(rawData, offset, nameWords, 0, 10);
                 byte[] nameBytes = new byte[20];
-                Buffer.BlockCopy(rawData, offset * 2, nameBytes, 0, 20);
+                Buffer.BlockCopy(nameWords, 0, nameBytes, 0, 20); // Bu kullanım daha güvenli
                 string name = Encoding.ASCII.GetString(nameBytes).Trim('\0', ' ');
 
                 operators.Add(new PlcOperator
                 {
                     SlotIndex = i,
                     Name = name,
-                    UserId = rawData[offset + 10],
-                    Password = rawData[offset + 11]
+                    UserId = rawData[offset + 10], // 11. word
+                    Password = rawData[offset + 11] // 12. word
                 });
             }
 
@@ -337,8 +347,12 @@ namespace TekstilScada.Services
             }
 
             var rawData = readResult.Content;
+
+            // GÜVENLİ KOD: short[] dizisinden 10 word (20 byte) alıp string'e çeviriyoruz
+            short[] nameWords = new short[10];
+            Array.Copy(rawData, 0, nameWords, 0, 10);
             byte[] nameBytes = new byte[20];
-            Buffer.BlockCopy(rawData, 0, nameBytes, 0, 20);
+            Buffer.BlockCopy(nameWords, 0, nameBytes, 0, 20);
             string name = Encoding.ASCII.GetString(nameBytes).Trim('\0', ' ');
 
             var plcOperator = new PlcOperator
@@ -351,6 +365,7 @@ namespace TekstilScada.Services
 
             return OperateResult.CreateSuccessResult(plcOperator);
         }
+
 
         public async Task<OperateResult<BatchSummaryData>> ReadBatchSummaryDataAsync()
         {
@@ -446,17 +461,15 @@ namespace TekstilScada.Services
                 return new OperateResult<List<ProductionStepDetail>>($"Adım analiz verileri okunurken hata: {ex.Message}");
             }
         }
-        // YENİ: PLC'deki OEE sayaçlarını sıfırlayan metot
+
         public async Task<OperateResult> ResetOeeCountersAsync()
         {
-            // D7764 (Duruş Süresi) adresine 0 yaz
             var downTimeResetResult = await Task.Run(() => _plcClient.Write("D7764", 0));
             if (!downTimeResetResult.IsSuccess)
             {
                 return new OperateResult($"Duruş süresi sayacı sıfırlanamadı: {downTimeResetResult.Message}");
             }
 
-            // D7770 (Hatalı Üretim) adresine 0 yaz
             var defectiveResetResult = await Task.Run(() => _plcClient.Write("D7770", 0));
             if (!defectiveResetResult.IsSuccess)
             {
@@ -465,21 +478,20 @@ namespace TekstilScada.Services
 
             return OperateResult.CreateSuccessResult();
         }
-        // YENİ: PLC'deki üretim sayacını bir artıran metot
+
         public async Task<OperateResult> IncrementProductionCounterAsync()
         {
-            // D7768 adresindeki mevcut değeri oku
             var readResult = await Task.Run(() => _plcClient.ReadInt16("D7768"));
             if (!readResult.IsSuccess)
             {
                 return new OperateResult($"Üretim sayacı okunamadı: {readResult.Message}");
             }
 
-            // Değeri bir artır ve geri yaz
             short newCount = (short)(readResult.Content + 1);
             var writeResult = await Task.Run(() => _plcClient.Write("D7768", newCount));
 
             return writeResult;
         }
+        #endregion
     }
 }

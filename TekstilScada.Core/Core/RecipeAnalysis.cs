@@ -12,24 +12,22 @@ namespace TekstilScada.Core
     {
         // Bu değerler LiveStepAnalyzer ile tutarlı olmalıdır.
         private const double SECONDS_PER_LITER = 0.5;
-
+        private const double DRAIN_SECONDS = 120.0;
         /// <summary>
         /// Bir reçetenin tüm adımlarının teorik sürelerini toplayarak toplam teorik süreyi saniye cinsinden hesaplar.
         /// </summary>
         /// <param name="recipe">Hesaplanacak reçete.</param>
         /// <returns>Toplam teorik süre (saniye).</returns>
-        public static double CalculateTotalTheoreticalTimeSeconds(ScadaRecipe recipe)
+        public static double CalculateTheoreticalTimeForSteps(IEnumerable<ScadaRecipeStep> steps)
         {
-            if (recipe == null || recipe.Steps == null) return 0;
+            if (steps == null || !steps.Any()) return 0;
 
             double totalSeconds = 0;
-            foreach (var step in recipe.Steps)
+            foreach (var step in steps)
             {
                 var parallelDurations = new List<double>();
-                // Reçete adımının kontrol word'ünü al (Adım tiplerinin tanımlandığı word)
                 short controlWord = step.StepDataWords[24];
 
-                // LiveStepAnalyzer'daki mantığın aynısını kullanarak her adımın maks. süresini bul
                 if ((controlWord & 1) != 0) // Su Alma
                 {
                     parallelDurations.Add(new SuAlmaParams(step.StepDataWords).MiktarLitre * SECONDS_PER_LITER);
@@ -51,15 +49,26 @@ namespace TekstilScada.Core
                 {
                     parallelDurations.Add(new CalismaParams(step.StepDataWords).CalismaSuresi * 60);
                 }
+                if ((controlWord & 16) != 0) // Boşaltma
+                {
+                    // Boşaltma için sabit 120 saniye ekliyoruz.
+                    parallelDurations.Add(DRAIN_SECONDS);
+                }
                 if ((controlWord & 32) != 0) // Sıkma
                 {
                     parallelDurations.Add(new SikmaParams(step.StepDataWords).SikmaSure * 60);
                 }
 
-                // Adımın teorik süresi, paralel çalışan işlemlerden en uzun olanıdır.
                 totalSeconds += parallelDurations.Any() ? parallelDurations.Max() : 0;
             }
             return totalSeconds;
+        }
+
+        // YENİ: Eski metot artık yeni esnek metodu çağırıyor, kod tekrarını önlüyoruz.
+        public static double CalculateTotalTheoreticalTimeSeconds(ScadaRecipe recipe)
+        {
+            if (recipe == null || recipe.Steps == null) return 0;
+            return CalculateTheoreticalTimeForSteps(recipe.Steps);
         }
     }
 }

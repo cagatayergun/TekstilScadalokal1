@@ -19,31 +19,25 @@ namespace TekstilScada.Core
 
             var csvBuilder = new StringBuilder();
 
-            // *** NİHAİ DÜZELTME BAŞLANGICI ***
-            // Başlık bölümü, XPR00001.csv formatıyla %100 uyumlu hale getirildi.
-            // Ayraç olarak virgül (,) yerine TAB (\t) kullanıldı ve Title boş bırakıldı.
-
-            // Tarih formatını "M/d/yyyy h:mm:ss tt" (örnek: 7/28/2025 6:26:00 PM) olarak ayarlıyoruz.
+            // Başlık bölümü
             string formattedDate = DateTime.Now.ToString("M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture);
             csvBuilder.AppendLine($"Date\t{formattedDate}");
-
-            // Title boş bırakılıyor.
             csvBuilder.AppendLine("Title\t");
-
-            // Toplam değer sayısı (adım sayısı * adım başına word sayısı)
             int itemCount = recipe.Steps.Count * 25;
             csvBuilder.AppendLine($"Item Count\t{itemCount}");
 
-            // Veri bölümü: Her bir word değeri ayrı bir satıra yazdırılıyor.
-            // Bu kısım zaten doğruydu ve HMI'ın beklentisiyle uyumluydu.
-            foreach (var step in recipe.Steps)
+            // Veri bölümü
+            foreach (var step in recipe.Steps.OrderBy(s => s.StepNumber))
             {
                 foreach (var word in step.StepDataWords)
                 {
                     csvBuilder.AppendLine(word.ToString());
                 }
             }
-            // *** NİHAİ DÜZELTME SONU ***
+
+            // *** EKLENEN DÜZELTME ***
+            // HMI'ın dosyayı doğru işlemesi için gereken son boş satırı ekliyoruz.
+            csvBuilder.AppendLine();
 
             return csvBuilder.ToString();
         }
@@ -53,7 +47,7 @@ namespace TekstilScada.Core
         /// </summary>
         public static ScadaRecipe ToRecipe(string csvContent, string recipeName)
         {
-            var recipe = new ScadaRecipe { RecipeName = recipeName };
+            var recipe = new ScadaRecipe { RecipeName = recipeName, Steps = new List<ScadaRecipeStep>() };
             if (string.IsNullOrWhiteSpace(csvContent)) return recipe;
 
             var lines = csvContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).ToList();
@@ -76,7 +70,7 @@ namespace TekstilScada.Core
                 {
                     try
                     {
-                        var step = new ScadaRecipeStep { StepNumber = stepNumber++ };
+                        var step = new ScadaRecipeStep { StepNumber = (short)stepNumber++ };
                         for (int j = 0; j < 25; j++)
                         {
                             step.StepDataWords[j] = Convert.ToInt16(stepValues[j]);
@@ -89,7 +83,6 @@ namespace TekstilScada.Core
                     }
                 }
             }
-
             return recipe;
         }
     }

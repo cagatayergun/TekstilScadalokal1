@@ -1,6 +1,7 @@
 ﻿// UI/Controls/MachineCard_Control.cs
 using System;
 using System.Drawing;
+using System.Drawing.Imaging; // ColorMatrix için bu using ifadesi gerekli
 using System.Windows.Forms;
 using TekstilScada.Models;
 
@@ -19,8 +20,12 @@ namespace TekstilScada.UI.Controls
         private readonly Color _colorDisconnected = Color.FromArgb(231, 76, 60);
         private readonly Color _colorConnecting = Color.FromArgb(241, 196, 15);
         private readonly Color _colorAlarm = Color.FromArgb(192, 57, 43);
-        private readonly Color _colorPlay = Color.FromArgb(46, 204, 113); // Yeşil
-        private readonly Color _colorPause = Color.FromArgb(241, 196, 15); // Sarı
+        private readonly Color _colorPlay = Color.FromArgb(46, 204, 113);
+        private readonly Color _colorPause = Color.FromArgb(241, 196, 15);
+
+        private readonly Image _originalPlayIcon;
+        private readonly Image _originalPauseIcon;
+        private readonly Image _originalAlarmIcon;
 
         public MachineCard_Control(int machineId, string machineUserDefinedId, string machineName, int displayIndex)
         {
@@ -29,8 +34,57 @@ namespace TekstilScada.UI.Controls
             this.MachineUserDefinedId = machineUserDefinedId;
             this.MachineName = machineName;
             lblMachineNumber.Text = $"{displayIndex}.";
+
+            // Kaynaklardan orijinal ikonları bir kereliğine yükle
+            _originalPlayIcon = Properties.Resource1.play;
+            _originalPauseIcon = Properties.Resource1.pause;
+            _originalAlarmIcon = Properties.Resource1.alarm;
+
+            // GÜNCELLENDİ: PictureBox'ların arkaplanını şeffaf yap
+            picPlay.BackColor = Color.Transparent;
+            picPause.BackColor = Color.Transparent;
+            picAlarm.BackColor = Color.Transparent;
+
+            picPlay.Visible = false;
+            picPause.Visible = false;
+            picAlarm.Visible = false;
+
             UpdateView(new FullMachineStatus { ConnectionState = ConnectionStatus.Disconnected, MachineName = this.MachineName });
         }
+
+        // GÜNCELLENDİ: Donmaya neden olmayan, performanslı ColorMatrix yöntemi
+        private Image TintImage(Image sourceImage, Color tintColor)
+        {
+            if (sourceImage == null) return null;
+
+            Bitmap newBitmap = new Bitmap(sourceImage.Width, sourceImage.Height);
+            using (Graphics g = Graphics.FromImage(newBitmap))
+            {
+                float r = tintColor.R / 255f;
+                float gg = tintColor.G / 255f;
+                float b = tintColor.B / 255f;
+
+                // Bu matris, resmin orijinal Alpha (şeffaflık) değerini korurken,
+                // renkli pikselleri hedef renge boyar.
+                ColorMatrix colorMatrix = new ColorMatrix(new float[][]
+                {
+                    new float[] {0, 0, 0, 0, 0},
+                    new float[] {0, 0, 0, 0, 0},
+                    new float[] {0, 0, 0, 0, 0},
+                    new float[] {0, 0, 0, 1, 0},
+                    new float[] {r, gg, b, 0, 1}
+                });
+
+                using (ImageAttributes attributes = new ImageAttributes())
+                {
+                    attributes.SetColorMatrix(colorMatrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+                    g.DrawImage(sourceImage, new Rectangle(0, 0, sourceImage.Width, sourceImage.Height),
+                                0, 0, sourceImage.Width, sourceImage.Height, GraphicsUnit.Pixel, attributes);
+                }
+            }
+            return newBitmap;
+        }
+
 
         public void UpdateView(FullMachineStatus status)
         {
@@ -62,15 +116,14 @@ namespace TekstilScada.UI.Controls
             lblMachineNameValue.Text = status.MachineName;
             lblMachineIdValue.Text = this.MachineUserDefinedId;
 
-            // İKON GÖRÜNÜRLÜĞÜ VE RENKLERİ
             picPlay.Visible = status.IsInRecipeMode && !status.IsPaused;
-            picPlay.BackColor = _colorPlay;
+            if (picPlay.Visible) picPlay.Image = TintImage(_originalPlayIcon, _colorPlay);
 
             picPause.Visible = status.IsPaused;
-            picPause.BackColor = _colorPause;
+            if (picPause.Visible) picPause.Image = TintImage(_originalPauseIcon, _colorPause);
 
             picAlarm.Visible = status.HasActiveAlarm;
-            picAlarm.BackColor = status.HasActiveAlarm ? _colorAlarm : Color.Transparent;
+            if (picAlarm.Visible) picAlarm.Image = TintImage(_originalAlarmIcon, _colorAlarm);
 
             int progress = Math.Max(0, Math.Min(100, (int)status.ProsesYuzdesi));
             progressBar.Value = progress;

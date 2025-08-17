@@ -1,4 +1,4 @@
-﻿// Bu dosyanın içeriğini tamamen aşağıdakiyle değiştirin
+﻿// UI/Views/GenelBakis_Control.cs
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -11,6 +11,7 @@ using TekstilScada.Properties;
 using TekstilScada.Repositories;
 using TekstilScada.Services;
 using TekstilScada.UI.Controls;
+
 namespace TekstilScada.UI.Views
 {
     public partial class GenelBakis_Control : UserControl
@@ -24,12 +25,24 @@ namespace TekstilScada.UI.Views
         private readonly Dictionary<int, DashboardMachineCard_Control> _machineCards = new Dictionary<int, DashboardMachineCard_Control>();
         private System.Windows.Forms.Timer _uiUpdateTimer;
 
+        // YENİ: KPI kartları için özel alanlar ekleyin
+        private KpiCard_Control _kpiTotalMachines;
+        private KpiCard_Control _kpiRunningMachines;
+        private KpiCard_Control _kpiAlarmMachines;
+        private KpiCard_Control _kpiIdleMachines;
+
         public GenelBakis_Control()
         {
             LanguageManager.LanguageChanged += LanguageManager_LanguageChanged;
             InitializeComponent();
             // Akıcı çizim için Double Buffering
             this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+
+            // YENİ: Göz kırpmayı önlemek için FlowLayoutPanel'e Double Buffering uygulayın
+            typeof(FlowLayoutPanel).InvokeMember("DoubleBuffered",
+                System.Reflection.BindingFlags.SetProperty | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                null, flpTopKpis, new object[] { true });
+
             ApplyLocalization();
         }
 
@@ -44,12 +57,14 @@ namespace TekstilScada.UI.Views
         private void LanguageManager_LanguageChanged(object sender, EventArgs e)
         {
             ApplyLocalization();
-
         }
-       
+
         private void GenelBakis_Control_Load(object sender, EventArgs e)
         {
             if (this.DesignMode) return;
+
+            // YENİ: KPI Kartlarını bir kereliğine oluşturun ve panele ekleyin
+            InitializeKpiCards();
 
             BuildMachineCards();
 
@@ -60,6 +75,20 @@ namespace TekstilScada.UI.Views
             _uiUpdateTimer.Start();
 
             RefreshDashboard(); // İlk yüklemede çalıştır
+        }
+
+        // YENİ METOT: KPI kartlarını başlangıçta oluşturur
+        private void InitializeKpiCards()
+        {
+            _kpiTotalMachines = new KpiCard_Control();
+            _kpiRunningMachines = new KpiCard_Control();
+            _kpiAlarmMachines = new KpiCard_Control();
+            _kpiIdleMachines = new KpiCard_Control();
+
+            flpTopKpis.Controls.Add(_kpiTotalMachines);
+            flpTopKpis.Controls.Add(_kpiRunningMachines);
+            flpTopKpis.Controls.Add(_kpiAlarmMachines);
+            flpTopKpis.Controls.Add(_kpiIdleMachines);
         }
 
         private void BuildMachineCards()
@@ -118,71 +147,56 @@ namespace TekstilScada.UI.Views
             }
         }
 
+        // GÜNCELLENMİŞ METOT: Artık kontrolleri silip yeniden oluşturmuyor
         private void UpdateKpiCards()
         {
             var allStatuses = _pollingService.MachineDataCache.Values;
-            if (!allStatuses.Any()) return;
-
-            flpTopKpis.Controls.Clear();
 
             int totalMachines = allStatuses.Count;
             int runningMachines = allStatuses.Count(s => s.IsInRecipeMode && !s.HasActiveAlarm);
             int alarmMachines = allStatuses.Count(s => s.HasActiveAlarm);
             int idleMachines = totalMachines - runningMachines - alarmMachines;
 
-            // KpiCard'ları oluştur
-            var kpiTotal = new KpiCard_Control();
-            var kpiRunning = new KpiCard_Control();
-            var kpiAlarm = new KpiCard_Control();
-            var kpiIdle = new KpiCard_Control();
-
-            // SetData metodu ile değerlerini ata
-            kpiTotal.SetData($"{Resources.AllMachines}", totalMachines.ToString(), Color.FromArgb(41, 128, 185));
-            kpiRunning.SetData($"{Resources.aktifüretim}", runningMachines.ToString(), Color.FromArgb(46, 204, 113));
-            kpiAlarm.SetData($"{Resources.alarmdurum}", alarmMachines.ToString(), Color.FromArgb(231, 76, 60));
-            kpiIdle.SetData($"{Resources.bosbekleyen}", idleMachines.ToString(), Color.FromArgb(243, 156, 18));
-
-            // Kontrolleri panele ekle
-            flpTopKpis.Controls.Add(kpiTotal);
-            flpTopKpis.Controls.Add(kpiRunning);
-            flpTopKpis.Controls.Add(kpiAlarm);
-            flpTopKpis.Controls.Add(kpiIdle);
+            // Mevcut kartların verilerini güncelle
+            _kpiTotalMachines.SetData($"{Resources.AllMachines}", totalMachines.ToString(), Color.FromArgb(41, 128, 185));
+            _kpiRunningMachines.SetData($"{Resources.aktifüretim}", runningMachines.ToString(), Color.FromArgb(46, 204, 113));
+            _kpiAlarmMachines.SetData($"{Resources.alarmdurum}", alarmMachines.ToString(), Color.FromArgb(231, 76, 60));
+            _kpiIdleMachines.SetData($"{Resources.bosbekleyen}", idleMachines.ToString(), Color.FromArgb(243, 156, 18));
         }
 
         private void UpdateSidebarCharts()
         {
-            // Saatlik Tüketim Grafiği (Bu kısım aynı kalıyor)
+            // Saatlik Tüketim Grafiği
             var hourlyData = _dashboardRepository.GetHourlyFactoryConsumption(DateTime.Today);
             formsPlotHourly.Plot.Clear();
             if (hourlyData.Rows.Count > 0)
             {
-                double[] hours = hourlyData.AsEnumerable().Select(row => Convert.ToDouble(row["Saat"])).ToArray();
-                double[] consumption = hourlyData.AsEnumerable().Select(row => Convert.ToDouble(row["ToplamElektrik"])).ToArray();
+                // HATA DÜZELTMESİ: Veritabanından gelen değerin DBNull olup olmadığını kontrol et.
+                // Eğer null ise 0.0 kullan, değilse değeri double'a çevir.
+                double[] hours = hourlyData.AsEnumerable().Select(row => row.IsNull("Saat") ? 0.0 : Convert.ToDouble(row["Saat"])).ToArray();
+                double[] consumption = hourlyData.AsEnumerable().Select(row => row.IsNull("ToplamElektrik") ? 0.0 : Convert.ToDouble(row["ToplamElektrik"])).ToArray();
+
                 var barPlot = formsPlotHourly.Plot.Add.Bars(hours, consumption);
                 barPlot.Color = ScottPlot.Colors.SteelBlue;
             }
-            formsPlotHourly.Plot.Title($"{Resources.Saatlikelektrik}");
+            formsPlotHourly.Plot.Title(Resources.Saatlikelektrik);
             formsPlotHourly.Plot.Axes.AutoScale();
             formsPlotHourly.Refresh();
 
-            // Popüler Alarmlar Grafiği (GÜNCELLENEN BÖLÜM)
+            // Popüler Alarmlar Grafiği
             var topAlarms = _alarmRepository.GetTopAlarmsByFrequency(DateTime.Now.AddDays(-1), DateTime.Now);
             formsPlotTopAlarms.Plot.Clear();
             if (topAlarms.Any())
             {
-                // HATA DÜZELTİLDİ: Artık a.Count ve a.AlarmText özelliklerine güvenle erişebiliriz.
                 double[] counts = topAlarms.Select(a => (double)a.Count).ToArray();
                 var labels = topAlarms.Select(a => a.AlarmText).ToArray();
-
                 var barPlot = formsPlotTopAlarms.Plot.Add.Bars(counts);
                 barPlot.Color = ScottPlot.Colors.OrangeRed;
-
-                // Eksen etiketlerini ayarla
                 var ticks = Enumerable.Range(0, labels.Length).Select(i => new ScottPlot.Tick(i, labels[i])).ToArray();
                 formsPlotTopAlarms.Plot.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericManual(ticks);
                 formsPlotTopAlarms.Plot.Axes.Bottom.TickLabelStyle.Rotation = 45;
             }
-            formsPlotTopAlarms.Plot.Title($"{Resources.ensikalarm}");
+            formsPlotTopAlarms.Plot.Title(Resources.ensikalarm);
             formsPlotTopAlarms.Plot.Axes.AutoScale();
             formsPlotTopAlarms.Refresh();
         }
@@ -199,11 +213,11 @@ namespace TekstilScada.UI.Views
         }
         public void ApplyLocalization()
         {
-           
-             gbHourlyConsumption.Text = Resources.saatlik; 
-           
-             gbTopAlarms.Text = Resources.son24topalarm; 
-               
+
+            gbHourlyConsumption.Text = Resources.saatlik;
+
+            gbTopAlarms.Text = Resources.son24topalarm;
+
 
             //btnSave.Text = Resources.Save;
 

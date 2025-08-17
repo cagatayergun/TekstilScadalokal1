@@ -264,7 +264,7 @@ namespace TekstilScada.UI.Views
         {
             SafeInvoke(() =>
             {
-                formsPlot1.Plot.Clear();
+                formsPlot1.Reset();
                 var (startTime, endTime) = _productionRepository.GetBatchTimestamps(batchId, _machine.Id);
 
                 if (!startTime.HasValue)

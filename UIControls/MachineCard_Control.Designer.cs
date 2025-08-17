@@ -44,19 +44,19 @@ namespace TekstilScada.UI.Controls
             this.progressBar = new System.Windows.Forms.ProgressBar();
             this.lblProcessing = new System.Windows.Forms.Label();
             this.pnlIcons = new System.Windows.Forms.Panel();
+            this.picConnection = new System.Windows.Forms.PictureBox();
             this.btnInfo = new System.Windows.Forms.Button();
             this.picAlarm = new System.Windows.Forms.PictureBox();
             this.picPause = new System.Windows.Forms.PictureBox();
             this.picPlay = new System.Windows.Forms.PictureBox();
             this.btnVnc = new System.Windows.Forms.Button();
             this.lblMachineNumber = new System.Windows.Forms.Label();
-            this.picConnection = new System.Windows.Forms.PictureBox();
             this.pnlMain.SuspendLayout();
             this.pnlIcons.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.picConnection)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.picAlarm)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.picPause)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.picPlay)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.picConnection)).BeginInit();
             this.SuspendLayout();
             // 
             // pnlMain
@@ -234,6 +234,15 @@ namespace TekstilScada.UI.Controls
             this.pnlIcons.Size = new System.Drawing.Size(260, 40);
             this.pnlIcons.TabIndex = 15;
             // 
+            // picConnection
+            // 
+            this.picConnection.BackColor = System.Drawing.Color.Red;
+            this.picConnection.Location = new System.Drawing.Point(170, 5);
+            this.picConnection.Name = "picConnection";
+            this.picConnection.Size = new System.Drawing.Size(30, 30);
+            this.picConnection.TabIndex = 6;
+            this.picConnection.TabStop = false;
+            // 
             // btnInfo
             // 
             this.btnInfo.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
@@ -248,27 +257,36 @@ namespace TekstilScada.UI.Controls
             // picAlarm
             // 
             this.picAlarm.BackColor = System.Drawing.Color.Transparent;
+            // GÜNCELLENDİ: Resources'tan ikonu yükle
+            this.picAlarm.Image = global::TekstilScada.Properties.Resource1.alarm;
             this.picAlarm.Location = new System.Drawing.Point(130, 5);
             this.picAlarm.Name = "picAlarm";
             this.picAlarm.Size = new System.Drawing.Size(30, 30);
+            this.picAlarm.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.picAlarm.TabIndex = 3;
             this.picAlarm.TabStop = false;
             // 
             // picPause
             // 
             this.picPause.BackColor = System.Drawing.Color.Transparent;
+            // GÜNCELLENDİ: Resources'tan ikonu yükle
+            this.picPause.Image = global::TekstilScada.Properties.Resource1.pause;
             this.picPause.Location = new System.Drawing.Point(90, 5);
             this.picPause.Name = "picPause";
             this.picPause.Size = new System.Drawing.Size(30, 30);
+            this.picPause.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.picPause.TabIndex = 2;
             this.picPause.TabStop = false;
             // 
             // picPlay
             // 
             this.picPlay.BackColor = System.Drawing.Color.Transparent;
+            // GÜNCELLENDİ: Resources'tan ikonu yükle
+            this.picPlay.Image = global::TekstilScada.Properties.Resource1.play;
             this.picPlay.Location = new System.Drawing.Point(50, 5);
             this.picPlay.Name = "picPlay";
             this.picPlay.Size = new System.Drawing.Size(30, 30);
+            this.picPlay.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.picPlay.TabIndex = 1;
             this.picPlay.TabStop = false;
             // 
@@ -293,15 +311,6 @@ namespace TekstilScada.UI.Controls
             this.lblMachineNumber.TabIndex = 0;
             this.lblMachineNumber.Text = "1.";
             // 
-            // picConnection
-            // 
-            this.picConnection.BackColor = System.Drawing.Color.Red;
-            this.picConnection.Location = new System.Drawing.Point(170, 5);
-            this.picConnection.Name = "picConnection";
-            this.picConnection.Size = new System.Drawing.Size(30, 30);
-            this.picConnection.TabIndex = 6;
-            this.picConnection.TabStop = false;
-            // 
             // MachineCard_Control
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
@@ -313,12 +322,11 @@ namespace TekstilScada.UI.Controls
             this.pnlMain.ResumeLayout(false);
             this.pnlMain.PerformLayout();
             this.pnlIcons.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.picConnection)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.picAlarm)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.picPause)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.picPlay)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.picConnection)).EndInit();
             this.ResumeLayout(false);
-
         }
 
         #endregion

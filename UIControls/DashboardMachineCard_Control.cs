@@ -38,7 +38,7 @@ namespace TekstilScada.UI.Controls
 
             lblRecipeName.Text = $"Reçete: {status.RecipeName ?? "-"}";
             lblBatchId.Text = $"Parti: {status.BatchNumarasi ?? "-"}";
-            lblTemperature.Text = $"{status.AnlikSicaklik}°C";
+            lblTemperature.Text = $"{status.AnlikSicaklik / 10.0m}°C";
             gaugeRpm.Value = status.AnlikDevirRpm;
             gaugeRpm.Text = status.AnlikDevirRpm.ToString();
 

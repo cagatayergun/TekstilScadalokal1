@@ -36,6 +36,7 @@ namespace TekstilScada.Models
         // Aktif Adım Bilgileri
         public short AktifAdimNo { get; set; }
         public string AktifAdimAdi { get; set; }
+        public short AktifAdimTipiWordu { get; set; } // YENİ: D94'ten gelen anlık adım tipi word'ü
         public short SuMiktari { get; set; }
         public short ElektrikHarcama { get; set; }
         public short BuharHarcama { get; set; }

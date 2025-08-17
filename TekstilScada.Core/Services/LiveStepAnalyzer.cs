@@ -15,34 +15,33 @@ namespace TekstilScada.Core.Services
         private double _currentStepPauseSeconds = 0;
 
         public List<ProductionStepDetail> AnalyzedSteps { get; }
+        public ScadaRecipe Recipe { get; private set; }
+        public DateTime CurrentStepStartTime { get; private set; }
 
-        // Su alma süresini hesaplamak için bir katsayı.
-        // Bu değer, 1 litre suyun kaç saniyede alındığını belirtir.
         private const double SECONDS_PER_LITER = 0.5;
 
         public LiveStepAnalyzer(ScadaRecipe recipe)
         {
             _recipe = recipe;
+            this.Recipe = recipe;
             AnalyzedSteps = new List<ProductionStepDetail>();
-            _currentStepStartTime = DateTime.Now; // Analizci oluşturulduğunda zamanı başlat
+            CurrentStepStartTime = DateTime.Now;
         }
 
         public bool ProcessData(FullMachineStatus status)
         {
             bool hasStepChanged = false;
 
-            // Pause/Duraklama süresini hesapla
             if (status.IsPaused && !_currentPauseStartTime.HasValue)
             {
-                _currentPauseStartTime = DateTime.Now; // Pause başladı
+                _currentPauseStartTime = DateTime.Now;
             }
             else if (!status.IsPaused && _currentPauseStartTime.HasValue)
             {
-                _currentStepPauseSeconds += (DateTime.Now - _currentPauseStartTime.Value).TotalSeconds; // Pause bitti
+                _currentStepPauseSeconds += (DateTime.Now - _currentPauseStartTime.Value).TotalSeconds;
                 _currentPauseStartTime = null;
             }
 
-            // Adım değişikliğini kontrol et
             if (status.AktifAdimNo != _currentStepNumber)
             {
                 if (_currentStepNumber > 0)
@@ -50,19 +49,18 @@ namespace TekstilScada.Core.Services
                     FinalizeStep(_currentStepNumber);
                 }
 
-                HandleSkippedSteps(_currentStepNumber + 1, status.AktifAdimNo);
-
-                StartNewStep(status.AktifAdimNo);
+                HandleSkippedSteps(status, _currentStepNumber + 1, status.AktifAdimNo);
+                StartNewStep(status);
                 hasStepChanged = true;
             }
 
             return hasStepChanged;
         }
 
-        private void StartNewStep(int stepNumber)
+        private void StartNewStep(FullMachineStatus status)
         {
-            _currentStepNumber = stepNumber;
-            _currentStepStartTime = DateTime.Now;
+            _currentStepNumber = status.AktifAdimNo;
+            CurrentStepStartTime = DateTime.Now;
             _currentPauseStartTime = null;
             _currentStepPauseSeconds = 0;
 
@@ -72,7 +70,8 @@ namespace TekstilScada.Core.Services
                 AnalyzedSteps.Add(new ProductionStepDetail
                 {
                     StepNumber = _currentStepNumber,
-                    StepName = GetStepTypeName(recipeStep),
+                    // YENİ: Adım adı artık PLC'den gelen anlık tipe göre belirleniyor
+                    StepName = GetStepTypeName(status.AktifAdimTipiWordu),
                     TheoreticalTime = CalculateTheoreticalTime(recipeStep),
                     WorkingTime = "İşleniyor...",
                     StopTime = "00:00:00",
@@ -86,7 +85,7 @@ namespace TekstilScada.Core.Services
             var stepToFinalize = AnalyzedSteps.LastOrDefault(s => s.StepNumber == stepNumber && s.WorkingTime == "İşleniyor...");
             if (stepToFinalize == null) return;
 
-            TimeSpan workingTime = DateTime.Now - _currentStepStartTime;
+            TimeSpan workingTime = DateTime.Now - CurrentStepStartTime;
             stepToFinalize.WorkingTime = workingTime.ToString(@"hh\:mm\:ss");
 
             if (_currentPauseStartTime.HasValue)
@@ -104,17 +103,19 @@ namespace TekstilScada.Core.Services
             stepToFinalize.DeflectionTime = $"{sign}{deflection:hh\\:mm\\:ss}";
         }
 
-        private void HandleSkippedSteps(int fromStep, int toStep)
+        private void HandleSkippedSteps(FullMachineStatus status, int fromStep, int toStep)
         {
             for (int i = fromStep; i < toStep; i++)
             {
                 var recipeStep = _recipe.Steps.FirstOrDefault(s => s.StepNumber == i);
                 if (recipeStep != null)
                 {
+                    string skippedStepName = GetStepTypeName(recipeStep.StepDataWords[24]) + " (Atlandı)";
+
                     AnalyzedSteps.Add(new ProductionStepDetail
                     {
                         StepNumber = i,
-                        StepName = GetStepTypeName(recipeStep) + " (Atlandı)",
+                        StepName = skippedStepName,
                         TheoreticalTime = CalculateTheoreticalTime(recipeStep),
                         WorkingTime = "00:00:00",
                         StopTime = "00:00:00",
@@ -133,11 +134,7 @@ namespace TekstilScada.Core.Services
         {
             var parallelDurations = new List<double>();
             short controlWord = step.StepDataWords[24];
-
-            if ((controlWord & 1) != 0)
-            {
-                parallelDurations.Add(new SuAlmaParams(step.StepDataWords).MiktarLitre * SECONDS_PER_LITER);
-            }
+            if ((controlWord & 1) != 0) parallelDurations.Add(new SuAlmaParams(step.StepDataWords).MiktarLitre * SECONDS_PER_LITER);
             if ((controlWord & 8) != 0)
             {
                 var dozajParams = new DozajParams(step.StepDataWords);
@@ -147,34 +144,25 @@ namespace TekstilScada.Core.Services
                 if (dozajParams.Tank1Dozaj) { dozajSuresi += dozajParams.DozajSure; }
                 parallelDurations.Add(dozajSuresi);
             }
-            if ((controlWord & 2) != 0)
-            {
-                parallelDurations.Add(new IsitmaParams(step.StepDataWords).Sure * 60);
-            }
-            if ((controlWord & 4) != 0)
-            {
-                parallelDurations.Add(new CalismaParams(step.StepDataWords).CalismaSuresi * 60);
-            }
-            if ((controlWord & 32) != 0)
-            {
-                parallelDurations.Add(new SikmaParams(step.StepDataWords).SikmaSure * 60);
-            }
-
+            if ((controlWord & 2) != 0) parallelDurations.Add(new IsitmaParams(step.StepDataWords).Sure * 60);
+            if ((controlWord & 4) != 0) parallelDurations.Add(new CalismaParams(step.StepDataWords).CalismaSuresi * 60);
+            if ((controlWord & 16) != 0) parallelDurations.Add(120); // Boşaltma sabit 120 sn
+            if ((controlWord & 32) != 0) parallelDurations.Add(new SikmaParams(step.StepDataWords).SikmaSure * 60);
             double maxDurationSeconds = parallelDurations.Any() ? parallelDurations.Max() : 0;
             return TimeSpan.FromSeconds(maxDurationSeconds).ToString(@"hh\:mm\:ss");
         }
 
-        private string GetStepTypeName(ScadaRecipeStep step)
+        // YENİ: Bu metot artık PLC'den gelen anlık kontrol word'ünü çözümlüyor.
+        private string GetStepTypeName(short controlWord)
         {
             var stepTypes = new List<string>();
-            short controlWord = step.StepDataWords[24];
             if ((controlWord & 1) != 0) stepTypes.Add("Su Alma");
             if ((controlWord & 2) != 0) stepTypes.Add("Isıtma");
             if ((controlWord & 4) != 0) stepTypes.Add("Çalışma");
             if ((controlWord & 8) != 0) stepTypes.Add("Dozaj");
             if ((controlWord & 16) != 0) stepTypes.Add("Boşaltma");
             if ((controlWord & 32) != 0) stepTypes.Add("Sıkma");
-            return stepTypes.Any() ? string.Join(" + ", stepTypes) : "Tanımsız";
+            return stepTypes.Any() ? string.Join(" + ", stepTypes) : "Bekliyor...";
         }
     }
 }

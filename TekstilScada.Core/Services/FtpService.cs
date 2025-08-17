@@ -1,12 +1,9 @@
 ﻿// Services/FtpService.cs
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using TekstilScada.Models;
 using WinSCP; // WinSCP kütüphanesini kullanıyoruz
 
 namespace TekstilScada.Services
@@ -36,11 +33,47 @@ namespace TekstilScada.Services
                 PortNumber = _port,
                 UserName = _username,
                 Password = _password,
-                // HMI sunucusu şifresiz (düz) FTP kullandığı için bu ayar önemli
                 FtpSecure = FtpSecure.None
             };
         }
 
+        public async Task UploadFileAsync(string remoteFilePath, string fileContent)
+        {
+            var sessionOptions = GetSessionOptions();
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                // *******************************************************************
+                // *** NİHAİ DÜZELTME: KARAKTER KODLAMASI UNICODE OLARAK DEĞİŞTİRİLDİ ***
+                // *******************************************************************
+                // HMI'ın dosyayı doğru okuyabilmesi ve boyutunun orijinal dosya ile
+                // eşleşmesi için dosyayı ASCII yerine Unicode (UTF-16 LE) olarak yazıyoruz.
+                await File.WriteAllTextAsync(tempFile, fileContent, Encoding.Unicode);
+
+                TransferOptions transferOptions = new TransferOptions();
+                transferOptions.FilePermissions = new FilePermissions { Octal = "777" };
+                transferOptions.ResumeSupport.State = TransferResumeSupportState.On;
+
+                await Task.Run(() =>
+                {
+                    using (var session = new Session())
+                    {
+                        session.Open(sessionOptions);
+                        session.PutFiles(tempFile, remoteFilePath, false, transferOptions).Check();
+                    }
+                });
+            }
+            finally
+            {
+                // İşlem bitince geçici dosyayı mutlaka sil.
+                if (File.Exists(tempFile))
+                {
+                    File.Delete(tempFile);
+                }
+            }
+        }
+
+        #region Mevcut Metotlar (Değişiklik Yok)
         public async Task<List<string>> ListDirectoryAsync(string remoteDirectory)
         {
             var fileList = new List<string>();
@@ -51,12 +84,10 @@ namespace TekstilScada.Services
                 using (var session = new Session())
                 {
                     session.Open(sessionOptions);
-                    // RemoteDirectoryInfo, sunucudaki dosyaları ve klasörleri listeler
                     RemoteDirectoryInfo directoryInfo = session.ListDirectory(remoteDirectory);
 
                     foreach (RemoteFileInfo fileInfo in directoryInfo.Files)
                     {
-                        // Sadece dosyaları listeye ekle
                         if (!fileInfo.IsDirectory)
                         {
                             fileList.Add(fileInfo.Name);
@@ -73,41 +104,31 @@ namespace TekstilScada.Services
             var sessionOptions = GetSessionOptions();
             string content = "";
             string tempFile = Path.GetTempFileName();
-
-            await Task.Run(() =>
+            try
             {
-                using (var session = new Session())
+                await Task.Run(() =>
                 {
-                    session.Open(sessionOptions);
-                    // Dosyayı önce geçici bir yere indir
-                    session.GetFiles(remoteFilePath, tempFile).Check();
-                }
-            });
+                    using (var session = new Session())
+                    {
+                        session.Open(sessionOptions);
+                        session.GetFiles(remoteFilePath, tempFile).Check();
+                    }
+                });
 
-            // Geçici dosyayı oku ve sil
-            content = await File.ReadAllTextAsync(tempFile, Encoding.ASCII);
-            File.Delete(tempFile);
+                // Not: Dosyaları alırken de HMI'ın hangi formatta kaydettiğini bilmek önemlidir.
+                // Eğer HMI da Unicode kaydediyorsa, burayı da Encoding.Unicode yapmak gerekebilir.
+                // Şimdilik ASCII bırakıyoruz çünkü alma işleminde bir sorun bildirmediniz.
+                content = await File.ReadAllTextAsync(tempFile, Encoding.ASCII);
+            }
+            finally
+            {
+                if (File.Exists(tempFile))
+                {
+                    File.Delete(tempFile);
+                }
+            }
             return content;
         }
-
-        public async Task UploadFileAsync(string remoteFilePath, string fileContent)
-        {
-            var sessionOptions = GetSessionOptions();
-            string tempFile = Path.GetTempFileName();
-            await File.WriteAllTextAsync(tempFile, fileContent, Encoding.ASCII);
-
-            await Task.Run(() =>
-            {
-                using (var session = new Session())
-                {
-                    session.Open(sessionOptions);
-                    // Geçici dosyayı sunucuya yükle
-                    session.PutFiles(tempFile, remoteFilePath).Check();
-                }
-            });
-
-            File.Delete(tempFile);
-        }
-    
+        #endregion
     }
 }
