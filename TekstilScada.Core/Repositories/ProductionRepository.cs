@@ -47,7 +47,8 @@ namespace TekstilScada.Repositories
                     b.MusteriNo,
                     b.MachineAlarmDurationSeconds, 
                      b.OperatorPauseDurationSeconds,
-                    b.SiparisNo
+                    b.SiparisNo,
+                     b.TheoreticalCycleTimeSeconds
                 FROM production_batches AS b
                 JOIN machines AS m ON b.MachineId = m.Id
             ");
@@ -97,8 +98,8 @@ namespace TekstilScada.Repositories
                             MusteriNo = reader.IsDBNull(reader.GetOrdinal("MusteriNo")) ? "" : reader.GetString("MusteriNo"),
                             SiparisNo = reader.IsDBNull(reader.GetOrdinal("SiparisNo")) ? "" : reader.GetString("SiparisNo"),
                               MachineAlarmDurationSeconds = reader.IsDBNull(reader.GetOrdinal("MachineAlarmDurationSeconds")) ? 0 : reader.GetInt32("MachineAlarmDurationSeconds"),
-                            OperatorPauseDurationSeconds = reader.IsDBNull(reader.GetOrdinal("OperatorPauseDurationSeconds")) ? 0 : reader.GetInt32("OperatorPauseDurationSeconds")
-
+                            OperatorPauseDurationSeconds = reader.IsDBNull(reader.GetOrdinal("OperatorPauseDurationSeconds")) ? 0 : reader.GetInt32("OperatorPauseDurationSeconds"),
+                            TheoreticalCycleTimeSeconds = reader.IsDBNull(reader.GetOrdinal("TheoreticalCycleTimeSeconds")) ? 0 : reader.GetInt32("TheoreticalCycleTimeSeconds")
                         });
                     }
                 }
@@ -124,12 +125,11 @@ namespace TekstilScada.Repositories
             }
         }
 
-        public void EndBatch(int machineId, string batchId, FullMachineStatus finalStatus, int machineAlarmSeconds, int operatorPauseSeconds, int actualProducedQuantity, int calculatedTotalDowntimeSeconds)
+        public void EndBatch(int machineId, string batchId, FullMachineStatus finalStatus, int machineAlarmSeconds, int operatorPauseSeconds, int actualProducedQuantity, int calculatedTotalDowntimeSeconds, double theoreticalCycleTimeSeconds)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
                 connection.Open();
-                // GÜNCELLENDİ: SQL sorgusu, TotalDownTimeSeconds'ı yeni parametreden alacak.
                 string query = @"
             UPDATE production_batches SET 
                 EndTime = @EndTime,
@@ -138,7 +138,8 @@ namespace TekstilScada.Repositories
                 TotalDownTimeSeconds = @TotalDownTimeSeconds, 
                 MachineAlarmDurationSeconds = @MachineAlarmDuration,
                 OperatorPauseDurationSeconds = @OperatorPauseDuration,
-                actual_produced_quantity = @actual_produced_quantity
+                actual_produced_quantity = @actual_produced_quantity,
+                TheoreticalCycleTimeSeconds = @TheoreticalCycleTimeSeconds
             WHERE 
                 MachineId = @MachineId AND BatchId = @BatchId AND EndTime IS NULL;";
 
@@ -148,14 +149,11 @@ namespace TekstilScada.Repositories
                 cmd.Parameters.AddWithValue("@BatchId", batchId);
                 cmd.Parameters.AddWithValue("@TotalProductionCount", finalStatus.TotalProductionCount);
                 cmd.Parameters.AddWithValue("@DefectiveProductionCount", finalStatus.DefectiveProductionCount);
-
-                // YENİ MANTIK: Toplam duruş süresi olarak PLC'den gelen yerine SCADA'da hesaplananı kullanıyoruz.
                 cmd.Parameters.AddWithValue("@TotalDownTimeSeconds", calculatedTotalDowntimeSeconds);
-
-                // Bilgilendirme amaçlı alarm ve duraklatma sürelerini ayrı ayrı kaydetmeye devam ediyoruz.
                 cmd.Parameters.AddWithValue("@MachineAlarmDuration", machineAlarmSeconds);
                 cmd.Parameters.AddWithValue("@OperatorPauseDuration", operatorPauseSeconds);
                 cmd.Parameters.AddWithValue("@actual_produced_quantity", actualProducedQuantity);
+                cmd.Parameters.AddWithValue("@TheoreticalCycleTimeSeconds", theoreticalCycleTimeSeconds);
 
                 cmd.ExecuteNonQuery();
             }

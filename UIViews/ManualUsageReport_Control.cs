@@ -5,6 +5,7 @@ using TekstilScada.Core;
 using TekstilScada.Models;
 using TekstilScada.Properties;
 using TekstilScada.Repositories;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace TekstilScada.UI.Views
 {
@@ -55,6 +56,7 @@ namespace TekstilScada.UI.Views
         {
             DateTime startTime = dtpStartTime.Value;
             DateTime endTime = dtpEndTime.Value;
+           
             var selectedMachine = cmbMachines.SelectedItem as Machine;
 
             if (selectedMachine == null) return;

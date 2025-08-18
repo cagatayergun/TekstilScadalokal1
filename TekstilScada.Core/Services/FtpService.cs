@@ -53,7 +53,7 @@ namespace TekstilScada.Services
                 TransferOptions transferOptions = new TransferOptions();
                 transferOptions.FilePermissions = new FilePermissions { Octal = "777" };
                 transferOptions.ResumeSupport.State = TransferResumeSupportState.On;
-
+                transferOptions.TransferMode = TransferMode.Binary; // <-- BU SATIRI EKLEYİN
                 await Task.Run(() =>
                 {
                     using (var session = new Session())
@@ -111,14 +111,15 @@ namespace TekstilScada.Services
                     using (var session = new Session())
                     {
                         session.Open(sessionOptions);
-                        session.GetFiles(remoteFilePath, tempFile).Check();
+                        var transferOptions = new TransferOptions { TransferMode = TransferMode.Binary };
+                        session.GetFiles(remoteFilePath, tempFile, false, transferOptions).Check();
                     }
                 });
 
-                // Not: Dosyaları alırken de HMI'ın hangi formatta kaydettiğini bilmek önemlidir.
-                // Eğer HMI da Unicode kaydediyorsa, burayı da Encoding.Unicode yapmak gerekebilir.
-                // Şimdilik ASCII bırakıyoruz çünkü alma işleminde bir sorun bildirmediniz.
-                content = await File.ReadAllTextAsync(tempFile, Encoding.ASCII);
+                // HMI'dan gelen dosya içeriğini önce byte dizisi olarak oku.
+                byte[] fileBytes = await File.ReadAllBytesAsync(tempFile);
+                // Ardından, byte dizisini Unicode (UTF-16) olarak metne dönüştür.
+                content = Encoding.Unicode.GetString(fileBytes);
             }
             finally
             {

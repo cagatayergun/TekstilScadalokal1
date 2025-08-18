@@ -153,6 +153,8 @@ namespace TekstilScada.Repositories
         // GÜNCELLENDİ: Manuel logları ve batch sonu verilerini birleştirerek özet oluşturan metot
         public ManualConsumptionSummary GetManualConsumptionSummary(int machineId, string machineName, DateTime startTime, DateTime endTime)
         {
+            var status = new FullMachineStatus(); 
+
             // 1. O periyottaki tüm manuel logları çek
             var dataPoints = GetManualLogs(machineId, startTime, endTime);
 
@@ -172,9 +174,9 @@ namespace TekstilScada.Repositories
             // Gerçek senaryoda, manuel mod için ayrı tüketim sayaçları okunmalıdır.
             // Şimdilik bu varsayımla ilerliyoruz.
             // Örnek olarak rastgele değerler atayalım:
-            totalWater = dataPoints.Count * 5; // Örnek: her log anında 5 litre
-            totalElectricity = dataPoints.Count(p => p.Rpm > 0); // Örnek: motorun çalıştığı her an 1kW
-            totalSteam = dataPoints.Count(p => p.Temperature > 400); // Örnek: ısınan her an 1kg
+            totalWater = status.SuMiktari ; // Örnek: her log anında 5 litre
+            totalElectricity = status.ElektrikHarcama; // Örnek: motorun çalıştığı her an 1kW
+            totalSteam = status.BuharHarcama; // Örnek: ısınan her an 1kg
 
             var summary = new ManualConsumptionSummary
             {

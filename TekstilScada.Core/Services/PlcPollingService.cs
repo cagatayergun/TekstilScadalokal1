@@ -221,7 +221,7 @@ namespace TekstilScada.Services
             if ((controlWord & 32) != 0) stepTypes.Add("Sıkma");
             return stepTypes.Any() ? string.Join(" + ", stepTypes) : "Bekliyor...";
         }
-        private void CheckAndLogBatchStartAndEnd(int machineId, FullMachineStatus currentStatus)
+        private async void CheckAndLogBatchStartAndEnd(int machineId, FullMachineStatus currentStatus)
         {
             // O anki makine için hangi batch'i takip ettiğimizi alıyoruz.
             _currentBatches.TryGetValue(machineId, out string lastTrackedBatchId);
@@ -257,12 +257,16 @@ namespace TekstilScada.Services
                 int actualProducedQuantity = currentStatus.ActualQuantityProduction;
                 _liveAlarmCounters.TryGetValue(machineId, out var finalCounters);
                 int totalDowntimeFromScada = finalCounters.machineAlarmSeconds + finalCounters.operatorPauseSeconds;
+                _batchTotalTheoreticalTimes.TryGetValue(machineId, out double theoreticalTime);
 
+
+                // YENİ KOD: Tüketim verilerini PLC'den oku ve kaydet
+               
                 // Batch'i kapatırken, bizim takip ettiğimiz son Batch ID'yi (`lastTrackedBatchId`) kullanıyoruz.
                 _productionRepository.EndBatch(
-                    machineId, lastTrackedBatchId, currentStatus,
-                    finalCounters.machineAlarmSeconds, finalCounters.operatorPauseSeconds,
-                    actualProducedQuantity, totalDowntimeFromScada);
+              machineId, lastTrackedBatchId, currentStatus,
+              finalCounters.machineAlarmSeconds, finalCounters.operatorPauseSeconds,
+              actualProducedQuantity, totalDowntimeFromScada, theoreticalTime);
 
                 // Artık bu makine için bir batch takip etmiyoruz, bir sonraki yeni batch'e kadar temizliyoruz.
                 _currentBatches[machineId] = null;
@@ -275,6 +279,15 @@ namespace TekstilScada.Services
                 _batchNonProductiveSeconds.TryRemove(machineId, out _);
                 if (_plcManagers.TryGetValue(machineId, out var plcManager))
                 {
+                    var summaryResult = await plcManager.ReadBatchSummaryDataAsync();
+                    if (summaryResult.IsSuccess)
+                    {
+                        _productionRepository.UpdateBatchSummary(machineId, lastTrackedBatchId, summaryResult.Content);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Batch {lastTrackedBatchId} için özet verileri okunamadı: {summaryResult.Message}");
+                    }
                     Task.Run(async () => {
                         await plcManager.IncrementProductionCounterAsync();
                         await plcManager.ResetOeeCountersAsync();

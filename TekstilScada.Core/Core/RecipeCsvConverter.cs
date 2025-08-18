@@ -50,7 +50,14 @@ namespace TekstilScada.Core
             var recipe = new ScadaRecipe { RecipeName = recipeName, Steps = new List<ScadaRecipeStep>() };
             if (string.IsNullOrWhiteSpace(csvContent)) return recipe;
 
-            var lines = csvContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+            // Unicode BOM'u varsa kaldır.
+            string cleanedContent = csvContent;
+            if (cleanedContent.Length > 0 && cleanedContent[0] == '\uFEFF')
+            {
+                cleanedContent = cleanedContent.Substring(1);
+            }
+
+            var lines = cleanedContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).ToList();
 
             int dataStartIndex = 0;
             if (lines.Count > 3 && lines[0].StartsWith("Date") && lines[2].StartsWith("Item Count"))
@@ -58,9 +65,15 @@ namespace TekstilScada.Core
                 dataStartIndex = 3;
             }
 
-            var numericLines = lines.Skip(dataStartIndex)
-                                    .Where(line => short.TryParse(line.Trim(), out _))
-                                    .ToList();
+            var numericLines = new List<string>();
+            foreach (var line in lines.Skip(dataStartIndex))
+            {
+                var trimmedLine = line.Trim().Replace("\0", string.Empty);
+                if (short.TryParse(trimmedLine, out _) || ushort.TryParse(trimmedLine, out _))
+                {
+                    numericLines.Add(trimmedLine);
+                }
+            }
 
             int stepNumber = 1;
             for (int i = 0; i < numericLines.Count; i += 25)
@@ -73,7 +86,19 @@ namespace TekstilScada.Core
                         var step = new ScadaRecipeStep { StepNumber = (short)stepNumber++ };
                         for (int j = 0; j < 25; j++)
                         {
-                            step.StepDataWords[j] = Convert.ToInt16(stepValues[j]);
+                            if (short.TryParse(stepValues[j], out short signedValue))
+                            {
+                                step.StepDataWords[j] = signedValue;
+                            }
+                            else if (ushort.TryParse(stepValues[j], out ushort unsignedValue))
+                            {
+                                step.StepDataWords[j] = unchecked((short)unsignedValue);
+                            }
+                            else
+                            {
+                                // Handle cases where parsing fails entirely, e.g., set to 0 or log an error.
+                                step.StepDataWords[j] = 0;
+                            }
                         }
                         recipe.Steps.Add(step);
                     }
